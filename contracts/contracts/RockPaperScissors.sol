@@ -186,8 +186,13 @@ contract RockPaperScissors {
 
         emit MoveRevealed(gameId, msg.sender, move, salt);
 
-        // TODO: Verify ZK proof here when verifier is integrated
-        // For now, we'll just verify the commitment hash matches
+        // Note: ZK proofs are generated client-side and verified locally
+        // The proof parameter is passed but not verified on-chain yet.
+        // To enable on-chain verification, we need to generate a verifier contract
+        // and that will also take care of the reveal phase
+        // Then integrate it here to verify the proof and winner calculation.
+        // For now, we rely on commitment verification (Keccak256) and
+        // the contract's _determineWinner() function for game resolution.
 
         // If both players have revealed, resolve the game
         if (game.player1Move != 255 && game.player2Move != 255) {
