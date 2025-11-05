@@ -4,7 +4,7 @@ A fully functional zero-knowledge rock-paper-scissors game where players commit 
 
 ## Overview
 
-This is a **real ZK proof implementation** - not a simulation. Players generate cryptographic zero-knowledge proofs using Noir circuits that prove:
+Players generate cryptographic zero-knowledge proofs using Noir circuits that prove:
 
 - The winner calculation is mathematically correct
 - Both moves are valid (0=Rock, 1=Paper, 2=Scissors)
@@ -28,12 +28,11 @@ This is a **real ZK proof implementation** - not a simulation. Players generate 
 ### Smart Contract Layer
 
 - **Solidity 0.8.20**: Game logic and state management
-- **Hardhat 3**: Development environment with Viem integration
-- **Hardhat Ignition**: Declarative deployment system
+- **Hardhat 3**: Development environment 
 
 ### Frontend
 
-- **Vite**: Modern build tool with ESM support
+- **Vite**: Lightweight build tool
 - **Ethers.js v6**: Ethereum interaction
 - **NoirJS**: Circuit execution and proof generation
 
@@ -260,7 +259,7 @@ npx hardhat run scripts/fundWallet.ts --network localhost <YOUR_METAMASK_ADDRESS
    - Proof is verified locally before submission
 5. **View Result**: Winner is announced after both reveals
 
-## How It Works (Technical Details)
+## How It Works
 
 ### ZK Proof Generation
 
@@ -291,96 +290,11 @@ The contract handles:
 - **Winner Resolution**: Uses `_determineWinner()` matching circuit logic
 - **ZK Proof Storage**: Receives proof bytes (verification pending)
 
-### Current Limitations
+### TODO
 
 - **On-chain verification not yet implemented**: Proofs are generated and verified client-side, but contract doesn't verify them yet
 - **To enable on-chain verification**: Generate verifier contract using Noir's verifier generation tools and integrate into `revealMove()`
 
-## Testing
-
-### Circuit Tests
-
-```bash
-cd circuit
-nargo test
-```
-
-Tests verify:
-
-- Rock beats Scissors
-- Paper beats Rock
-- Scissors beats Paper
-- Tie detection
-- Player 2 wins scenarios
-
-### Contract Tests
-
-```bash
-cd contracts
-npx hardhat test
-```
-
-Tests verify:
-
-- Game creation and joining
-- Move commitment and reveal
-- Winner determination
-- Invalid move rejection
-
-## Development
-
-### Compiling Circuit
-
-```bash
-cd circuit
-nargo compile
-```
-
-### Compiling Contracts
-
-```bash
-cd contracts
-npx hardhat compile
-```
-
-### Running Tests
-
-```bash
-# Circuit tests
-cd circuit && nargo test
-
-# Contract tests
-cd contracts && npx hardhat test
-```
-
-## Architecture Decisions
-
-### Why Client-Side Proof Generation?
-
-- **Faster UX**: Proofs generated in browser, no server needed
-- **Privacy**: Moves stay private until reveal
-- **Decentralization**: No trusted third party required
-
-### Why Keccak256 for Commitments?
-
-- **Gas Efficiency**: Native Solidity hash function
-- **Security**: Cryptographically secure commitment scheme
-- **Simplicity**: No need for Pedersen hash on-chain
-
-### Why Separate Circuit and Contract Logic?
-
-- **Circuit**: Proves winner calculation is correct
-- **Contract**: Verifies commitments and resolves games
-- **Separation**: Allows optimization of each layer independently
-
-## Future Enhancements
-
-- [ ] **On-chain ZK Verification**: Generate and integrate verifier contract
-- [ ] **Betting/Stakes**: Add ETH wagering functionality
-- [ ] **Tournament Mode**: Multi-player brackets
-- [ ] **Privacy Enhancements**: Keep moves hidden until both reveal
-- [ ] **Gas Optimization**: Optimize proof generation and contract calls
-
 ## License
 
-MIT
+GPLv3
