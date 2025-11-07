@@ -843,17 +843,11 @@ async function updateGameResolutionStatus() {
             break;
           }
 
+          // Time remaining is shown in the countdown below, no need to show it here
+          // Just check if deadline passed for status color
           const now = Math.floor(Date.now() / 1000);
           const timeRemaining = deadline - now;
-          if (timeRemaining > 0) {
-            const minutes = Math.floor(timeRemaining / 60);
-            const seconds = timeRemaining % 60;
-            const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-            const isUrgent = timeRemaining < 60;
-            statusDetails += ` <span class="font-semibold ${
-              isUrgent ? "text-red-600" : "text-yellow-600"
-            }">(⏰ ${timeStr} remaining)</span>`;
-          } else {
+          if (timeRemaining <= 0) {
             statusDetails += ` <span class="font-semibold text-red-600">(⏰ Deadline passed!)</span>`;
           }
         }
