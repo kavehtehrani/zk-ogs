@@ -8,6 +8,7 @@ contract RockPaperScissorsTest is Test {
     RockPaperScissors public game;
     address public player1;
     address public player2;
+    uint256 public constant DEFAULT_TIMEOUT = 5 minutes;
 
     function setUp() public {
         game = new RockPaperScissors();
@@ -20,7 +21,7 @@ contract RockPaperScissorsTest is Test {
             abi.encodePacked(uint8(0), keccak256("salt1"))
         );
         vm.prank(player1);
-        uint256 gameId = game.createGame(commitment);
+        uint256 gameId = game.createGame(commitment, DEFAULT_TIMEOUT);
 
         RockPaperScissors.Game memory gameData = game.getGame(gameId);
         require(gameData.gameId == gameId, "Game ID mismatch");
@@ -30,6 +31,10 @@ contract RockPaperScissorsTest is Test {
             gameData.player1Commitment == commitment,
             "Commitment should be set"
         );
+        require(
+            gameData.timeout == DEFAULT_TIMEOUT,
+            "Timeout should be set correctly"
+        );
     }
 
     function test_JoinGame() public {
@@ -37,7 +42,7 @@ contract RockPaperScissorsTest is Test {
             abi.encodePacked(uint8(0), keccak256("salt1"))
         );
         vm.prank(player1);
-        uint256 gameId = game.createGame(commitment);
+        uint256 gameId = game.createGame(commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1); // Player 2 plays Paper
@@ -58,7 +63,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Player 2 submits paper (1) when joining
         vm.prank(player2);
@@ -81,7 +86,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt)); // Rock
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Player 2 submits scissors (2) when joining
         vm.prank(player2);
@@ -109,7 +114,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt)); // Rock
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 2); // Scissors
@@ -129,7 +134,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(1), p1Salt)); // Paper
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 0); // Rock
@@ -146,7 +151,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt)); // Rock
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 0); // Rock
@@ -163,7 +168,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -180,7 +185,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 2); // Scissors
@@ -202,7 +207,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         uint256 joinTime = block.timestamp;
@@ -211,10 +216,10 @@ contract RockPaperScissorsTest is Test {
         RockPaperScissors.Game memory gameData = game.getGame(gameId);
         uint256 deadline = gameData.revealDeadline;
 
-        // Verify deadline is set correctly (5 minutes after join)
+        // Verify deadline is set correctly (timeout after join)
         require(
-            deadline == joinTime + 5 minutes,
-            "Deadline should be 5 minutes after join"
+            deadline == joinTime + gameData.timeout,
+            "Deadline should be timeout after join"
         );
 
         // Fast forward past deadline
@@ -234,7 +239,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -257,7 +262,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -279,7 +284,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -303,7 +308,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -323,7 +328,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Try to forfeit before P2 joins (should fail)
         vm.expectRevert();
@@ -335,7 +340,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -355,7 +360,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Try to resolve before P2 joins (should fail)
         vm.prank(player1);
@@ -369,7 +374,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Try to join with invalid move (should fail)
         vm.prank(player2);
@@ -386,7 +391,7 @@ contract RockPaperScissorsTest is Test {
         // (Solidity will enforce this at compile time, but we can test the flow)
         bytes32 commitment = bytes32(0);
         vm.prank(player1);
-        uint256 gameId = game.createGame(commitment);
+        uint256 gameId = game.createGame(commitment, DEFAULT_TIMEOUT);
 
         // Game should be created even with zero commitment (valid edge case)
         RockPaperScissors.Game memory gameData = game.getGame(gameId);
@@ -401,7 +406,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -422,17 +427,21 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         uint256 joinTime = block.timestamp;
         vm.prank(player2);
         game.joinGame(gameId, 1);
 
         RockPaperScissors.Game memory gameData = game.getGame(gameId);
-        uint256 expectedDeadline = joinTime + 5 minutes;
+        uint256 expectedDeadline = joinTime + gameData.timeout;
         require(
             gameData.revealDeadline == expectedDeadline,
-            "Deadline should be exactly 5 minutes after join"
+            "Deadline should be exactly timeout after join"
+        );
+        require(
+            gameData.timeout == DEFAULT_TIMEOUT,
+            "Timeout should match the value passed to createGame"
         );
     }
 
@@ -442,7 +451,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -465,7 +474,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 2); // Scissors
@@ -488,7 +497,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -511,7 +520,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -528,7 +537,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         // Player 1 tries to join their own game (should fail)
         vm.prank(player1);
@@ -541,7 +550,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(2), p1Salt)); // Scissors
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1); // Paper
@@ -561,7 +570,7 @@ contract RockPaperScissorsTest is Test {
         bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt)); // Rock
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1); // Paper (beats Rock)
@@ -579,7 +588,7 @@ contract RockPaperScissorsTest is Test {
         );
 
         vm.prank(player1);
-        uint256 gameId = game.createGame(p1Commitment);
+        uint256 gameId = game.createGame(p1Commitment, DEFAULT_TIMEOUT);
 
         vm.prank(player2);
         game.joinGame(gameId, 1);
@@ -589,6 +598,52 @@ contract RockPaperScissorsTest is Test {
         vm.prank(player3);
         vm.expectRevert();
         game.joinGame(gameId, 2);
+    }
+
+    function test_TimeoutIsStoredCorrectly() public {
+        bytes32 p1Commitment = keccak256(
+            abi.encodePacked(uint8(0), keccak256("salt1"))
+        );
+
+        uint256 customTimeout = 2 days;
+        vm.prank(player1);
+        uint256 gameId = game.createGame(p1Commitment, customTimeout);
+
+        RockPaperScissors.Game memory gameData = game.getGame(gameId);
+        require(
+            gameData.timeout == customTimeout,
+            "Timeout should be stored correctly"
+        );
+    }
+
+    function test_DifferentTimeoutsWork() public {
+        bytes32 p1Commitment = keccak256(
+            abi.encodePacked(uint8(0), keccak256("salt1"))
+        );
+
+        uint256 shortTimeout = 1 minutes;
+        vm.prank(player1);
+        uint256 gameId = game.createGame(p1Commitment, shortTimeout);
+
+        vm.prank(player2);
+        uint256 joinTime = block.timestamp;
+        game.joinGame(gameId, 1);
+
+        RockPaperScissors.Game memory gameData = game.getGame(gameId);
+        uint256 expectedDeadline = joinTime + shortTimeout;
+        require(
+            gameData.revealDeadline == expectedDeadline,
+            "Deadline should use the custom timeout"
+        );
+
+        // Fast forward past the short deadline
+        vm.warp(expectedDeadline + 1);
+
+        // Should be able to forfeit
+        game.forfeitGame(gameId);
+        gameData = game.getGame(gameId);
+        require(uint8(gameData.status) == 3, "Status should be Completed");
+        require(gameData.winner == 2, "Player 2 should win by forfeit");
     }
 }
 

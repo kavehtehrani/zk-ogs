@@ -62,13 +62,16 @@ async function initNoir() {
   }
 }
 
-// Logging utility
+// Logging utility - track last log entry for collapsing repeated messages
+let lastLogEntry = null;
+let lastLogMessage = null;
+let lastLogEmoji = null;
+let logRepeatCount = 0;
+
 function log(message) {
   const logsDiv = document.getElementById("logs");
-  const entry = document.createElement("div");
-  entry.className = "log-entry rounded-lg";
 
-  // Add emoji based on message type
+  // Determine emoji based on message type
   let emoji = "📝";
   if (message.includes("✅")) emoji = "✅";
   else if (message.includes("❌")) emoji = "❌";
@@ -78,33 +81,106 @@ function log(message) {
   else if (message.includes("⏳")) emoji = "⏳";
   else if (message.includes("🚀")) emoji = "🚀";
 
+  // Check if this is a repeat of the last message
+  if (lastLogEntry && lastLogMessage === message && lastLogEmoji === emoji) {
+    // Increment repeat count
+    logRepeatCount++;
+
+    // Update the last entry with the count badge
+    lastLogEntry.innerHTML = `
+      <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
+      <span class="ml-2">${emoji} ${message}</span>
+      <span class="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">${
+        logRepeatCount + 1
+      }</span>
+    `;
+
+    logsDiv.scrollTop = logsDiv.scrollHeight;
+    return;
+  }
+
+  // New message - reset repeat count and create new entry
+  logRepeatCount = 0;
+  const entry = document.createElement("div");
+  entry.className = "log-entry rounded-lg";
+
   entry.innerHTML = `
     <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
     <span class="ml-2">${emoji} ${message}</span>
   `;
   logsDiv.appendChild(entry);
   logsDiv.scrollTop = logsDiv.scrollHeight;
+
+  // Update tracking variables
+  lastLogEntry = entry;
+  lastLogMessage = message;
+  lastLogEmoji = emoji;
 }
 
-// Set contract address manually
-function setContractAddress() {
-  const address = document.getElementById("contractAddressInput").value.trim();
-  if (!ethers.isAddress(address)) {
-    log("❌ Invalid contract address");
-    return;
+// Update step checkmarks based on current state
+function updateStepCheckmarks() {
+  // Step 1: Connect Wallet - check if wallet is connected
+  const step1Checkmark = document.getElementById("step1Checkmark");
+  if (step1Checkmark) {
+    if (signer) {
+      step1Checkmark.classList.remove("hidden");
+    } else {
+      step1Checkmark.classList.add("hidden");
+    }
   }
 
-  CONTRACT_ADDRESS = address;
-  log(`✅ Contract address set: ${address}`);
+  // Step 2: Make Your Move - check if move is selected
+  const step2Checkmark = document.getElementById("step2Checkmark");
+  if (step2Checkmark) {
+    if (gameState.move !== null && gameState.move !== undefined) {
+      step2Checkmark.classList.remove("hidden");
+    } else {
+      step2Checkmark.classList.add("hidden");
+    }
+  }
 
-  // Connect contract if wallet is connected
-  if (signer && CONTRACT_ABI) {
-    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-    log("✅ Contract connected");
+  // Step 2b: Game Actions - check if game is created or joined
+  const step2bCheckmark = document.getElementById("step2bCheckmark");
+  if (step2bCheckmark) {
+    if (gameState.gameId !== null) {
+      step2bCheckmark.classList.remove("hidden");
+    } else {
+      step2bCheckmark.classList.add("hidden");
+    }
+  }
+
+  // Step 3: Game Resolution - check if game is resolved/completed
+  const step3Checkmark = document.getElementById("step3Checkmark");
+  if (step3Checkmark) {
+    if (gameState.isRevealed) {
+      step3Checkmark.classList.remove("hidden");
+    } else {
+      step3Checkmark.classList.add("hidden");
+    }
+  }
+}
+
+// Update contract address display at bottom of page
+function updateContractAddressDisplay() {
+  const displayDiv = document.getElementById("contractAddressDisplay");
+  if (!displayDiv) return;
+
+  if (CONTRACT_ADDRESS) {
+    const isLocalhost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    const network = isLocalhost ? "localhost" : "Sepolia";
+
+    displayDiv.innerHTML = `
+      <p class="text-gray-600 text-xs flex flex-wrap items-center gap-2">
+        <span class="font-semibold">Contract Address (${network}):</span>
+        <span class="font-mono text-purple-600 break-all">${CONTRACT_ADDRESS}</span>
+      </p>
+    `;
   } else {
-    log(
-      "⚠️ Connect wallet first, then contract will be connected automatically"
-    );
+    displayDiv.innerHTML = `
+      <p class="text-gray-500 text-xs">Contract address will be loaded automatically...</p>
+    `;
   }
 }
 
@@ -152,7 +228,9 @@ async function connectWallet() {
     document.getElementById("walletInfo").innerHTML = `
       <div class="px-4 py-2 bg-gradient-to-r from-green-100 to-emerald-100 rounded-xl border-2 border-green-300">
         <p class="text-green-800 font-semibold">
-          ✅ Connected: <span class="font-mono">${address.slice(
+          ✅ Connected: 
+          <span class="font-mono break-all hidden sm:inline">${address}</span>
+          <span class="font-mono sm:hidden">${address.slice(
             0,
             6
           )}...${address.slice(-4)}</span>
@@ -167,13 +245,35 @@ async function connectWallet() {
       contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       log("✅ Contract connected");
     } else {
-      log("⚠️ Enter contract address above and click 'Set Contract'");
+      log("⚠️ Contract address will be loaded automatically");
     }
+
+    // Update step checkmarks
+    updateStepCheckmarks();
   } catch (error) {
     log(`❌ Error connecting wallet: ${error.message}`);
     if (error.message.includes("JSON")) {
       log("💡 Make sure Hardhat node is running: npx hardhat node");
     }
+  }
+}
+
+// Convert timeout value and unit to seconds
+function convertTimeoutToSeconds(value, unit) {
+  const numValue = Number(value);
+  if (isNaN(numValue) || numValue <= 0) {
+    return 300; // Default to 5 minutes (300 seconds) if invalid
+  }
+
+  switch (unit) {
+    case "minutes":
+      return numValue * 60;
+    case "hours":
+      return numValue * 60 * 60;
+    case "days":
+      return numValue * 60 * 60 * 24;
+    default:
+      return 300; // Default to 5 minutes
   }
 }
 
@@ -222,7 +322,29 @@ async function createGame() {
     gameState.commitment = commitment;
     gameState.isCommitted = true;
 
-    const tx = await contract.createGame(commitment);
+    // Get timeout from UI inputs
+    const timeoutValue = document.getElementById("timeoutValue").value;
+    const timeoutUnit = document.getElementById("timeoutUnit").value;
+    const timeoutSeconds = convertTimeoutToSeconds(timeoutValue, timeoutUnit);
+
+    // Ensure timeout is a proper integer (Ethereum expects uint256, which is whole seconds)
+    // JavaScript numbers are fine for values up to 2^53, but we should ensure it's an integer
+    const timeoutUint = Math.floor(timeoutSeconds);
+
+    if (timeoutUint <= 0 || timeoutUint > Number.MAX_SAFE_INTEGER) {
+      log(`❌ Invalid timeout value: ${timeoutUint} seconds`);
+      throw new Error(
+        `Invalid timeout: must be between 1 and ${Number.MAX_SAFE_INTEGER} seconds`
+      );
+    }
+
+    log(
+      `📋 Timeout input: ${timeoutValue} ${timeoutUnit} (${timeoutSeconds} seconds)`
+    );
+    log(`📋 Sending timeout to contract: ${timeoutUint} seconds (as uint256)`);
+
+    // Pass timeout as a number - ethers.js will handle the conversion to uint256
+    const tx = await contract.createGame(commitment, timeoutUint);
     log(`Transaction sent: ${tx.hash}`);
 
     const receipt = await tx.wait();
@@ -242,12 +364,27 @@ async function createGame() {
       const parsed = contract.interface.parseLog(event);
       gameState.gameId = parsed.args.gameId.toString();
       gameState.playerNumber = 1;
+
+      // Log timeout from event
+      const timeoutFromEvent = parsed.args.timeout;
+      const timeoutNum =
+        typeof timeoutFromEvent === "bigint"
+          ? Number(timeoutFromEvent)
+          : Number(timeoutFromEvent.toString());
+      log(`✅ Game created! Game ID: ${gameState.gameId}`);
+      log(
+        `📋 Timeout stored in contract: ${timeoutNum} seconds (${
+          timeoutNum / 60
+        } minutes)`
+      );
+      log("⏳ Waiting for Player 2 to join...");
+
       updateGameStatus();
-      updateMoveStatus();
+      // Don't show "Committed" status in Step 2 after game creation - it's already in logs
+      // updateMoveStatus();
       updateRevealStatus();
       updateButtonStates(); // Disable create button after game is created
-      log(`✅ Game created! Game ID: ${gameState.gameId}`);
-      log("⏳ Waiting for Player 2 to join...");
+      updateStepCheckmarks(); // Update step checkmarks
 
       // Start polling for game updates
       startGameResultPolling();
@@ -304,24 +441,81 @@ async function joinGame() {
     gameState.gameId = gameId;
     gameState.playerNumber = 2;
 
-    // Get deadline from event
-    const event = receipt.logs.find((log) => {
-      try {
-        const parsed = contract.interface.parseLog(log);
-        return parsed && parsed.name === "PlayerJoined";
-      } catch {
-        return false;
-      }
-    });
+    // Get deadline from event - handle both old and new event formats
+    let event = null;
+    let parsed = null;
 
-    if (event) {
-      const parsed = contract.interface.parseLog(event);
-      const deadline = Number(parsed.args.revealDeadline);
-      log(`✅ Joined game ${gameId}`);
+    for (const log of receipt.logs) {
+      try {
+        const tempParsed = contract.interface.parseLog(log);
+        if (tempParsed && tempParsed.name === "PlayerJoined") {
+          event = log;
+          parsed = tempParsed;
+          break;
+        }
+      } catch (e) {
+        // Continue searching
+      }
+    }
+
+    if (parsed && parsed.args) {
+      // Safely access revealDeadline - it might be at different positions
+      let deadlineBigInt = parsed.args.revealDeadline;
+      if (deadlineBigInt === undefined || deadlineBigInt === null) {
+        // Try accessing by index if named access fails
+        deadlineBigInt = parsed.args[3]; // revealDeadline is 4th arg (index 3)
+      }
+
+      if (deadlineBigInt !== undefined && deadlineBigInt !== null) {
+        const deadline =
+          typeof deadlineBigInt === "bigint"
+            ? Number(deadlineBigInt)
+            : Number(deadlineBigInt.toString());
+
+        // Get game data to log timeout
+        // Game struct is an array: timeout is at index 9
+        const game = await contract.getGame(gameId);
+        const timeoutBigInt = game[9] || game.timeout;
+        const timeoutNum =
+          typeof timeoutBigInt === "bigint"
+            ? Number(timeoutBigInt)
+            : timeoutBigInt !== undefined && timeoutBigInt !== null
+            ? Number(timeoutBigInt.toString())
+            : 0;
+
+        log(`✅ Joined game ${gameId}`);
+        log(
+          `📋 Timeout from contract: ${timeoutNum} seconds (${
+            timeoutNum / 60
+          } minutes)`
+        );
+        log(
+          `📋 Reveal deadline calculated: ${deadline} (${new Date(
+            deadline * 1000
+          ).toLocaleString()})`
+        );
+        log(
+          `⏰ Player 1 has until ${new Date(
+            deadline * 1000
+          ).toLocaleTimeString()} to reveal`
+        );
+
+        // Verify deadline calculation
+        const now = Math.floor(Date.now() / 1000);
+        const expectedDeadline = now + timeoutNum;
+        log(
+          `🔍 Verification: Current time: ${now}, Expected deadline: ${expectedDeadline}, Actual deadline: ${deadline}, Difference: ${
+            deadline - expectedDeadline
+          } seconds`
+        );
+      } else {
+        log(
+          `⚠️ Could not extract deadline from event, but join was successful`
+        );
+      }
+    } else {
       log(
-        `⏰ Player 1 has until ${new Date(
-          deadline * 1000
-        ).toLocaleTimeString()} to reveal`
+        `⚠️ PlayerJoined event not found in receipt, but join transaction succeeded`
       );
     }
 
@@ -329,6 +523,7 @@ async function joinGame() {
     updateMoveStatus();
     updateRevealStatus();
     updateButtonStates(); // Update button states after joining
+    updateStepCheckmarks(); // Update step checkmarks
 
     // Start polling for game updates and deadline checking
     startGameResultPolling();
@@ -342,13 +537,64 @@ async function joinGame() {
   }
 }
 
+// Clear borders from all move buttons
+function clearMoveButtonBorders() {
+  const buttons = [
+    document.getElementById("rockBtn"),
+    document.getElementById("paperBtn"),
+    document.getElementById("scissorsBtn"),
+  ];
+
+  buttons.forEach((btn) => {
+    if (btn) {
+      btn.classList.remove(
+        "border-4",
+        "border-green-400",
+        "ring-4",
+        "ring-green-200"
+      );
+    }
+  });
+}
+
 // Select move (for both players)
 // For Player 1: stores move locally, will be committed when creating game
 // For Player 2: stores move locally, will be submitted when joining game
 function selectMove(move) {
   gameState.move = move;
+
+  // Update button borders to show selection
+  const buttons = [
+    document.getElementById("rockBtn"),
+    document.getElementById("paperBtn"),
+    document.getElementById("scissorsBtn"),
+  ];
+
+  buttons.forEach((btn, index) => {
+    if (btn) {
+      if (index === move) {
+        // Add border to selected button
+        btn.classList.add(
+          "border-4",
+          "border-green-400",
+          "ring-4",
+          "ring-green-200"
+        );
+      } else {
+        // Remove border from other buttons
+        btn.classList.remove(
+          "border-4",
+          "border-green-400",
+          "ring-4",
+          "ring-green-200"
+        );
+      }
+    }
+  });
+
   updateMoveStatus();
   updateButtonStates();
+  updateStepCheckmarks();
   log(
     `✅ Move selected: ${
       move === 0 ? "Rock" : move === 1 ? "Paper" : "Scissors"
@@ -375,14 +621,14 @@ function updateButtonStates() {
       // Enable create button if move selected and no game yet
       createBtn.disabled = false;
       createBtn.className =
-        "px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl";
+        "w-full px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold text-sm rounded-lg hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl whitespace-nowrap";
       createBtn.innerHTML = "✨ Create Game";
     } else if (!hasMove) {
       // Disable if no move selected
       createBtn.disabled = true;
       createBtn.className =
-        "px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200";
-      createBtn.innerHTML = "✨ Create Game (Select move first)";
+        "w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap";
+      createBtn.innerHTML = "✨ Create Game";
     }
   }
 
@@ -394,18 +640,14 @@ function updateButtonStates() {
       // Enable join button if move selected and game ID entered
       joinBtn.disabled = false;
       joinBtn.className =
-        "px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold rounded-xl hover:from-orange-700 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl";
-      joinBtn.innerHTML = "🚀 Join Game";
+        "w-full px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold text-sm rounded-lg hover:from-orange-700 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl whitespace-nowrap";
+      joinBtn.innerHTML = "🚀 Join";
     } else {
       // Disable if no move or no game ID
       joinBtn.disabled = true;
       joinBtn.className =
-        "px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200";
-      if (!hasMove) {
-        joinBtn.innerHTML = "🚀 Join Game (Select move first)";
-      } else {
-        joinBtn.innerHTML = "🚀 Join Game";
-      }
+        "w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap";
+      joinBtn.innerHTML = "🚀 Join";
     }
   }
 }
@@ -488,55 +730,190 @@ async function serializeProof(proof) {
   }
 }
 
-// Update game status display
-async function updateGameStatus() {
-  if (!contract || !gameState.gameId) return;
+// Track last rendered status to avoid unnecessary DOM updates
+let lastRenderedStatus = null;
+let lastRenderedGameId = null;
+let lastRenderedPlayerNumber = null;
+let lastRenderedResolutionStatus = null;
+let lastRenderedResolutionGameId = null;
 
-  try {
-    const game = await contract.getGame(gameState.gameId);
-    const statusText = ["Waiting", "Committed", "Revealed", "Completed"][
-      game.status
-    ];
-    const statusClass = `status-${statusText.toLowerCase()}`;
+// Update game resolution status display (always visible)
+async function updateGameResolutionStatus() {
+  const statusDiv = document.getElementById("gameResolutionStatus");
+  if (!statusDiv) return;
 
-    let deadlineHtml = "";
-    if (game.revealDeadline > 0 && game.status !== 3) {
-      const deadline = Number(game.revealDeadline);
-      const now = Math.floor(Date.now() / 1000);
-      const timeRemaining = deadline - now;
-      const minutes = Math.floor(timeRemaining / 60);
-      const seconds = timeRemaining % 60;
-      const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-      const isUrgent = timeRemaining < 60;
-
-      deadlineHtml = `
-        <div class="mt-3 p-3 bg-${
-          isUrgent ? "red" : "yellow"
-        }-50 border border-${isUrgent ? "red" : "yellow"}-200 rounded-lg">
-          <p class="text-${
-            isUrgent ? "red" : "yellow"
-          }-800 font-semibold text-sm">
-            ⏰ Deadline: ${timeStr} remaining
+  // If no game is active, show default message
+  if (!contract || !gameState.gameId) {
+    // Only update if status changed (we had a game before, or this is first render)
+    if (
+      lastRenderedResolutionStatus !== null ||
+      lastRenderedResolutionGameId !== null
+    ) {
+      statusDiv.innerHTML = `
+        <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+          <p class="text-sm text-gray-600 text-center">
+            No active game. Create or join a game to see status here.
           </p>
         </div>
       `;
+      lastRenderedResolutionStatus = null;
+      lastRenderedResolutionGameId = null;
+      lastRenderedPlayerNumber = null;
+    }
+    return;
+  }
+
+  try {
+    const game = await contract.getGame(gameState.gameId);
+
+    // Safely access struct fields - handle both array and object formats
+    // Game struct order: [gameId, player1, player2, status, player1Commitment, player1Move, player2Move, winner, createdAt, timeout, revealDeadline]
+    // Indices:           0       1        2        3      4                 5           6           7      8          9       10
+
+    // Check if it's an array or object
+    const isArray =
+      Array.isArray(game) ||
+      (typeof game === "object" && game.length !== undefined);
+
+    // Safely get status - try array index first, then named property
+    let statusValue;
+    if (isArray && game.length > 3) {
+      statusValue = game[3];
+    } else {
+      statusValue = game.status;
+    }
+    const statusNum = Number(statusValue);
+
+    // Check if status actually changed - only update DOM if it did
+    if (
+      lastRenderedResolutionStatus === statusNum &&
+      lastRenderedResolutionGameId === gameState.gameId &&
+      lastRenderedPlayerNumber === gameState.playerNumber
+    ) {
+      // Status hasn't changed, skip DOM update to avoid unnecessary re-renders
+      return;
     }
 
-    document.getElementById("gameStatus").innerHTML = `
-      <div class="bg-white rounded-xl p-4 border-2 border-gray-200 slide-up">
+    // Status changed, update the display
+    lastRenderedResolutionStatus = statusNum;
+    lastRenderedResolutionGameId = gameState.gameId;
+    lastRenderedPlayerNumber = gameState.playerNumber;
+
+    const statusText = ["Waiting", "Committed", "Revealed", "Completed"][
+      statusNum
+    ];
+    const statusClass = `status-${statusText.toLowerCase()}`;
+
+    let statusDetails = "";
+    let statusColor = "gray";
+
+    switch (statusNum) {
+      case 0: // Waiting
+        statusDetails = "Waiting for players to join";
+        statusColor = "yellow";
+        break;
+      case 1: // Committed
+        statusDetails = "Player 1 committed move. Waiting for Player 2...";
+        statusColor = "blue";
+        break;
+      case 2: // Revealed
+        statusDetails = "Player 2 joined. Player 1 must reveal move.";
+        statusColor = "orange";
+        // Safely access revealDeadline - try array index first, then named property
+        let deadlineBigInt;
+        if (isArray && game.length > 10) {
+          deadlineBigInt = game[10];
+        } else {
+          deadlineBigInt = game.revealDeadline;
+        }
+        if (
+          deadlineBigInt &&
+          (typeof deadlineBigInt === "bigint"
+            ? deadlineBigInt > 0n
+            : Number(deadlineBigInt.toString()) > 0)
+        ) {
+          const deadline =
+            typeof deadlineBigInt === "bigint"
+              ? Number(deadlineBigInt)
+              : Number(deadlineBigInt.toString());
+
+          // Validate it's a timestamp, not a timeout value
+          if (deadline < 1000000000) {
+            // This is likely a timeout value, not a deadline timestamp
+            break;
+          }
+
+          // Time remaining is shown in the countdown below, no need to show it here
+          // Just check if deadline passed for status color
+          const now = Math.floor(Date.now() / 1000);
+          const timeRemaining = deadline - now;
+          if (timeRemaining <= 0) {
+            statusDetails += ` <span class="font-semibold text-red-600">(⏰ Deadline passed!)</span>`;
+          }
+        }
+        break;
+      case 3: // Completed
+        // Safely access winner - try array index first, then named property
+        let winnerValue;
+        if (isArray && game.length > 7) {
+          winnerValue = game[7];
+        } else {
+          winnerValue = game.winner;
+        }
+        const winnerNum = Number(winnerValue);
+        if (winnerNum === 0) {
+          statusDetails = "Game completed: It's a tie! 🤝";
+          statusColor = "gray";
+        } else if (winnerNum === gameState.playerNumber) {
+          statusDetails = "Game completed: You won! 🎉";
+          statusColor = "green";
+        } else {
+          statusDetails = "Game completed: You lost. 😔";
+          statusColor = "red";
+        }
+        break;
+    }
+
+    // Map status colors to Tailwind classes
+    const borderColorClass =
+      {
+        yellow: "border-yellow-200",
+        blue: "border-blue-200",
+        orange: "border-orange-200",
+        green: "border-green-200",
+        red: "border-red-200",
+        gray: "border-gray-200",
+      }[statusColor] || "border-gray-200";
+
+    statusDiv.innerHTML = `
+      <div class="bg-white rounded-xl p-4 border-2 ${borderColorClass} slide-up">
         <div class="flex flex-wrap items-center gap-3 mb-2">
           <span class="status-badge ${statusClass}">${statusText}</span>
           <span class="text-gray-600 font-semibold">Game ID: <span class="font-mono text-purple-600">${gameState.gameId}</span></span>
         </div>
-        <p class="text-gray-700 font-medium">
-          👤 You are <span class="text-purple-600 font-bold">Player ${gameState.playerNumber}</span>
+        <p class="text-gray-700 font-medium text-sm">
+          ${statusDetails}
         </p>
-        ${deadlineHtml}
+        <p class="text-gray-600 text-xs mt-2">
+          👤 You are <span class="font-semibold text-purple-600">Player ${gameState.playerNumber}</span>
+        </p>
       </div>
     `;
   } catch (error) {
-    log(`Error updating game status: ${error.message}`);
+    statusDiv.innerHTML = `
+      <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+        <p class="text-sm text-red-600 text-center">
+          Error loading game status: ${error.message}
+        </p>
+      </div>
+    `;
   }
+}
+
+// Update game status display (now only updates resolution status)
+async function updateGameStatus() {
+  // Only update resolution status - the single source of truth
+  await updateGameResolutionStatus();
 }
 
 // Update move status
@@ -545,6 +922,7 @@ function updateMoveStatus() {
   if (!moveStatusDiv) return;
 
   if (gameState.move === null || gameState.move === undefined) {
+    clearMoveButtonBorders();
     moveStatusDiv.innerHTML = `
       <div class="bg-gray-50 rounded-xl p-4 border-2 border-gray-200">
         <p class="text-gray-600 text-center">
@@ -555,27 +933,10 @@ function updateMoveStatus() {
     return;
   }
 
-  const moveNames = ["🪨 Rock", "📄 Paper", "✂️ Scissors"];
-  const moveEmojis = ["🪨", "📄", "✂️"];
-  moveStatusDiv.innerHTML = `
-    <div class="bg-white rounded-xl p-4 border-2 border-gray-200 slide-up">
-      <div class="flex items-center justify-center gap-3">
-        <span class="text-4xl">${moveEmojis[gameState.move]}</span>
-        <div class="text-left">
-          <p class="text-lg font-bold text-gray-800">${
-            moveNames[gameState.move]
-          }</p>
-          <p class="text-sm ${
-            gameState.isCommitted
-              ? "text-green-600 font-semibold"
-              : "text-gray-500"
-          }">
-            ${gameState.isCommitted ? "✅ Committed" : "⏳ Ready to use"}
-          </p>
-        </div>
-      </div>
-    </div>
-  `;
+  // Don't show "Committed" status - the border on the button shows selection
+  // The commit status is already logged, no need to show it in the UI
+  // Clear the status div - move selection is indicated by button border
+  moveStatusDiv.innerHTML = "";
 }
 
 // Update reveal status
@@ -593,19 +954,59 @@ async function checkGameResult() {
 
   try {
     const game = await contract.getGame(gameState.gameId);
-    const statusNum = Number(game.status);
+
+    // Safely access struct fields - handle both array and object formats
+    const isArray =
+      Array.isArray(game) ||
+      (typeof game === "object" && game.length !== undefined);
+
+    // Safely get status
+    let statusValue;
+    if (isArray && game.length > 3) {
+      statusValue = game[3];
+    } else {
+      statusValue = game.status;
+    }
+    const statusNum = Number(statusValue);
 
     // Update game status display (includes deadline info)
     await updateGameStatus();
     updateRevealStatus();
 
     // If Player 2 just joined and Player 1 is watching, start deadline polling
+    // Only start if deadline is actually set and valid
+    // Game struct is an array: player2 is at index 2, revealDeadline is at index 10
+    const player2 = game[2] || game.player2;
     if (
       statusNum === 2 &&
-      game.player2 !== ethers.ZeroAddress &&
+      player2 !== ethers.ZeroAddress &&
       gameState.playerNumber === 1
     ) {
-      if (!deadlinePollInterval) {
+      // Game struct is an array: revealDeadline is at index 10
+      let deadlineBigInt = game[10] || game.revealDeadline;
+      const deadlineNum =
+        typeof deadlineBigInt === "bigint"
+          ? Number(deadlineBigInt)
+          : deadlineBigInt !== undefined && deadlineBigInt !== null
+          ? Number(deadlineBigInt.toString())
+          : 0;
+
+      // Validate it's a timestamp, not a timeout value
+      if (deadlineNum > 0 && deadlineNum < 1000000000) {
+        log(
+          `⚠️ WARNING: Deadline value ${deadlineNum} looks like a timeout, not a timestamp! Skipping deadline polling.`
+        );
+        return;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      // Only start polling if deadline is in the future
+      if (deadlineNum > 0 && deadlineNum > now && !deadlinePollInterval) {
+        log(
+          `🔍 Starting deadline polling: deadline=${deadlineNum}, now=${now}, remaining=${
+            deadlineNum - now
+          }s`
+        );
         startDeadlinePolling();
       }
     }
@@ -621,30 +1022,44 @@ async function checkGameResult() {
         deadlinePollInterval = null;
       }
 
-      // Show result
-      const winnerNum = Number(game.winner);
-      let winnerText = "";
-      let announcement = "";
-
-      if (winnerNum === 0) {
-        winnerText = "Tie";
-        announcement = "🤝 It's a TIE!";
-      } else if (winnerNum === gameState.playerNumber) {
-        winnerText = "You";
-        announcement = "🎉 YOU WIN! 🎉";
+      // Show result - only show modal when game is actually completed (both moves revealed)
+      // Safely access winner field
+      let winnerValue;
+      if (isArray && game.length > 7) {
+        winnerValue = game[7];
       } else {
-        winnerText = `Player ${winnerNum}`;
-        announcement = "😔 You lost. Better luck next time!";
+        winnerValue = game.winner;
       }
+      const winnerNum = Number(winnerValue);
 
-      // Show big announcement (only if not already shown)
-      if (!document.getElementById("gameResult")) {
-        showGameResult(announcement, winnerNum, game);
+      // Only show modal if game is truly completed (winner is set, not just status 3)
+      // This prevents showing modal when game is just created
+      if (winnerNum !== undefined && winnerNum !== null) {
+        let winnerText = "";
+        let announcement = "";
+
+        if (winnerNum === 0) {
+          winnerText = "Tie";
+          announcement = "🤝 It's a TIE!";
+        } else if (winnerNum === gameState.playerNumber) {
+          winnerText = "You";
+          announcement = "🎉 YOU WIN! 🎉";
+        } else {
+          winnerText = `Player ${winnerNum}`;
+          announcement = "😔 You lost. Better luck next time!";
+        }
+
+        // Show big announcement (only if not already shown and game is truly completed)
+        if (!document.getElementById("gameResult")) {
+          showGameResult(announcement, winnerNum, game);
+        }
+
+        log(`🎉 Game completed! Winner: ${winnerText}`);
       }
-
-      log(`🎉 Game completed! Winner: ${winnerText}`);
-      log(`Player 1 played: ${getMoveName(game.player1Move)}`);
-      log(`Player 2 played: ${getMoveName(game.player2Move)}`);
+      // Game struct is an array: player1Move is at index 5
+      log(`Player 1 played: ${getMoveName(game[5] || game.player1Move)}`);
+      // Game struct is an array: player2Move is at index 6
+      log(`Player 2 played: ${getMoveName(game[6] || game.player2Move)}`);
     } else if (statusNum === 2) {
       // Status is "Revealed" - Player 2 joined, waiting for Player 1 to reveal
       if (gameState.playerNumber === 1) {
@@ -707,17 +1122,80 @@ async function resolveGame() {
     log("Getting game state from contract...");
     const game = await contract.getGame(gameState.gameId);
 
+    // Safely access struct fields - handle both array and object formats
+    // Game struct order: [gameId, player1, player2, status, player1Commitment, player1Move, player2Move, winner, createdAt, timeout, revealDeadline]
+    // Indices:           0       1        2        3      4                 5           6           7      8          9       10
+
+    // Check if it's an array or object
+    const isArray =
+      Array.isArray(game) ||
+      (typeof game === "object" && game.length !== undefined);
+
+    // Safely access fields - check bounds before accessing array indices
+    let player2, player2Move, timeoutBigInt, revealDeadlineBigInt;
+
+    if (isArray && game.length > 10) {
+      player2 = game[2];
+      player2Move = game[6];
+      timeoutBigInt = game[9];
+      revealDeadlineBigInt = game[10];
+    } else {
+      // Fall back to named properties
+      player2 = game.player2;
+      player2Move = game.player2Move;
+      timeoutBigInt = game.timeout;
+      revealDeadlineBigInt = game.revealDeadline;
+    }
+
+    // Debug logging
+    log(
+      `🔍 Game struct: player2=${player2}, player2Move=${player2Move}, isArray=${isArray}, length=${
+        game.length || "N/A"
+      }`
+    );
+    log(`🔍 timeout=${timeoutBigInt}, revealDeadline=${revealDeadlineBigInt}`);
+
     // Check that Player 2 has joined
-    if (game.player2 === ethers.ZeroAddress || game.player2Move === 255) {
+    if (player2 === ethers.ZeroAddress || player2Move === 255) {
       log("⏳ Waiting for Player 2 to join...");
       return;
     }
 
-    // Check deadline
-    const deadline = Number(game.revealDeadline);
+    // Convert BigNumber to number
+    const timeoutNum =
+      typeof timeoutBigInt === "bigint"
+        ? Number(timeoutBigInt)
+        : timeoutBigInt !== undefined && timeoutBigInt !== null
+        ? Number(timeoutBigInt.toString())
+        : 0;
+
+    const deadline =
+      typeof revealDeadlineBigInt === "bigint"
+        ? Number(revealDeadlineBigInt)
+        : revealDeadlineBigInt !== undefined && revealDeadlineBigInt !== null
+        ? Number(revealDeadlineBigInt.toString())
+        : 0;
+
     const now = Math.floor(Date.now() / 1000);
+
+    log(
+      `🔍 Deadline check: timeout=${timeoutNum}s, deadline=${deadline}, now=${now}`
+    );
+
+    if (deadline === 0 || deadline < 1000000000) {
+      log(
+        `❌ Invalid deadline value: ${deadline}. This looks like a timeout value, not a timestamp!`
+      );
+      log(
+        `💡 The deadline should be a Unix timestamp (>= 1000000000), but we got: ${deadline}`
+      );
+      return;
+    }
+
     if (now > deadline) {
-      log("❌ Deadline has passed. Game will be forfeited.");
+      log(
+        `❌ Deadline has passed. (deadline: ${deadline}, now: ${now}) Game will be forfeited.`
+      );
       return;
     }
 
@@ -728,7 +1206,14 @@ async function resolveGame() {
 
     // Get Player 2's move from contract (already stored)
     const move1 = Number(gameState.move);
-    const move2 = Number(game.player2Move);
+    // Safely access player2Move
+    let move2Value;
+    if (isArray && game.length > 6) {
+      move2Value = game[6];
+    } else {
+      move2Value = game.player2Move;
+    }
+    const move2 = Number(move2Value);
 
     // Validate moves
     if (move1 < 0 || move1 > 2 || move2 < 0 || move2 > 2) {
@@ -893,6 +1378,7 @@ async function resolveGame() {
       log(`🎉 Winner: ${winner === 0 ? "Tie" : `Player ${winner}`}`);
 
       gameState.isRevealed = true;
+      updateStepCheckmarks(); // Update step checkmarks
 
       // Start polling for final result
       setTimeout(() => {
@@ -947,7 +1433,7 @@ function addRevealButton() {
         id="revealBtn"
         class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
       >
-        🔓 Reveal Move
+        🔓 Resolve Game
       </button>
     `;
     document.getElementById("revealBtn").addEventListener("click", resolveGame);
@@ -962,7 +1448,8 @@ async function checkDeadline() {
 
   try {
     const game = await contract.getGame(gameState.gameId);
-    const isCompleted = game.status === 3; // GameStatus.Completed
+    // Game struct is an array: status is at index 3
+    const isCompleted = (game[3] || game.status) === 3; // GameStatus.Completed
 
     if (isCompleted) {
       // Game already resolved, stop polling
@@ -973,23 +1460,63 @@ async function checkDeadline() {
       return;
     }
 
-    // Only check deadline if Player 2 has joined
-    if (game.player2 === ethers.ZeroAddress || game.revealDeadline === 0) {
+    // Only check deadline if Player 2 has joined and deadline is set
+    // Game struct is an array: player2 is at index 2
+    const player2 = game[2] || game.player2;
+    if (player2 === ethers.ZeroAddress) {
       return;
     }
 
-    const deadline = Number(game.revealDeadline);
-    const now = Math.floor(Date.now() / 1000);
-    const timeRemaining = deadline - now;
+    // Game struct is an array: timeout is at index 9, revealDeadline is at index 10
+    const timeoutBigInt = game[9] || game.timeout;
+    const revealDeadlineBigInt = game[10] || game.revealDeadline;
 
-    // Update deadline display
-    updateDeadlineDisplay(timeRemaining);
+    const timeoutNum =
+      typeof timeoutBigInt === "bigint"
+        ? Number(timeoutBigInt)
+        : timeoutBigInt !== undefined && timeoutBigInt !== null
+        ? Number(timeoutBigInt.toString())
+        : 0;
 
-    // If deadline passed and game not resolved, forfeit
-    if (timeRemaining <= 0 && game.status !== 3) {
-      log("⏰ Deadline passed! Forfeiting game...");
-      await forfeitGame();
+    const deadlineNum =
+      typeof revealDeadlineBigInt === "bigint"
+        ? Number(revealDeadlineBigInt)
+        : revealDeadlineBigInt !== undefined && revealDeadlineBigInt !== null
+        ? Number(revealDeadlineBigInt.toString())
+        : 0;
+
+    // Validate deadline is a proper timestamp, not a timeout value
+    if (deadlineNum > 0 && deadlineNum < 1000000000) {
+      log(
+        `⚠️ WARNING: Deadline value ${deadlineNum} looks like a timeout (seconds), not a timestamp!`
+      );
+      log(
+        `⚠️ This suggests the contract may have returned timeout instead of revealDeadline`
+      );
+      return; // Don't proceed with invalid deadline
     }
+
+    // If deadline is 0 or invalid, don't check
+    if (deadlineNum === 0 || isNaN(deadlineNum) || deadlineNum <= 0) {
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const timeRemaining = deadlineNum - now;
+
+    // Log deadline check details
+    log(
+      `🔍 Deadline check: timeout=${timeoutNum}s, deadline=${deadlineNum}, now=${now}, remaining=${timeRemaining}s`
+    );
+
+    // Update deadline display (will show forfeit button for Player 2 if deadline passed)
+    // Only update if game is not already completed
+    const gameStatus = game[3] || game.status;
+    if (gameStatus !== 3) {
+      updateDeadlineDisplay(timeRemaining, gameState.playerNumber);
+    }
+
+    // Don't auto-forfeit - let Player 2 manually trigger forfeit via button
   } catch (error) {
     console.error("Deadline check error:", error);
   }
@@ -1002,7 +1529,9 @@ async function forfeitGame() {
   try {
     log("Calling forfeitGame()...");
     const tx = await contract.forfeitGame(gameState.gameId);
-    await tx.wait();
+    log(`Transaction sent: ${tx.hash}`);
+    const receipt = await tx.wait();
+    log(`Transaction confirmed in block ${receipt.blockNumber}`);
     log("✅ Game forfeited! Player 2 wins by default.");
 
     // Stop polling
@@ -1010,11 +1539,17 @@ async function forfeitGame() {
       clearInterval(deadlinePollInterval);
       deadlinePollInterval = null;
     }
+    if (gameResultPollInterval) {
+      clearInterval(gameResultPollInterval);
+      gameResultPollInterval = null;
+    }
 
-    // Refresh game status
+    // Refresh game status to show completion
+    await updateGameStatus();
     await checkGameResult();
   } catch (error) {
     log(`❌ Error forfeiting game: ${error.message}`);
+    console.error("Forfeit error:", error);
   }
 }
 
@@ -1030,27 +1565,69 @@ function startDeadlinePolling() {
 }
 
 // Update deadline display in UI
-function updateDeadlineDisplay(timeRemaining) {
+function updateDeadlineDisplay(timeRemaining, playerNumber) {
   const deadlineDiv = document.getElementById("deadlineDisplay");
   if (!deadlineDiv) return;
 
-  if (timeRemaining <= 0) {
-    deadlineDiv.innerHTML = `
-      <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
-        <p class="text-red-800 font-bold text-lg">⏰ Deadline Passed!</p>
-        <p class="text-red-600 text-sm">Player 1 forfeits - Player 2 wins</p>
-      </div>
-    `;
-  } else {
-    const minutes = Math.floor(timeRemaining / 60);
-    const seconds = timeRemaining % 60;
-    const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-    const isUrgent = timeRemaining < 60;
+  // Don't show deadline if time remaining is invalid (negative or very large)
+  // Only show "Deadline Passed" if it's actually negative (not just 0 or invalid)
+  if (timeRemaining < 0) {
+    // Show forfeit button for Player 2 when deadline has passed
+    if (playerNumber === 2) {
+      deadlineDiv.innerHTML = `
+        <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
+          <p class="text-red-800 font-bold text-lg mb-3">⏰ Deadline Passed!</p>
+          <p class="text-red-600 text-sm mb-4">Player 1 failed to reveal in time. You can claim victory!</p>
+          <button
+            id="forceForfeitBtn"
+            class="px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold rounded-xl hover:from-red-700 hover:to-pink-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
+            🏆 Force Forfeit (Claim Victory)
+          </button>
+        </div>
+      `;
 
-    deadlineDiv.innerHTML = `
+      // Add event listener to the button
+      const forceForfeitBtn = document.getElementById("forceForfeitBtn");
+      if (forceForfeitBtn) {
+        // Remove any existing listeners by cloning the button
+        const newBtn = forceForfeitBtn.cloneNode(true);
+        forceForfeitBtn.parentNode.replaceChild(newBtn, forceForfeitBtn);
+        newBtn.addEventListener("click", async () => {
+          newBtn.disabled = true;
+          newBtn.innerHTML = "⏳ Processing...";
+          await forfeitGame();
+          newBtn.disabled = false;
+          newBtn.innerHTML = "🏆 Force Forfeit (Claim Victory)";
+        });
+      }
+    } else {
+      // For Player 1, just show that deadline passed
+      deadlineDiv.innerHTML = `
+        <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
+          <p class="text-red-800 font-bold text-lg">⏰ Deadline Passed!</p>
+          <p class="text-red-600 text-sm">You failed to reveal in time. Player 2 can claim victory.</p>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  // Don't show if time is invalid (too large) or exactly 0
+  if (timeRemaining === 0 || timeRemaining > 86400 * 365) {
+    deadlineDiv.innerHTML = "";
+    return;
+  }
+
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const isUrgent = timeRemaining < 60;
+
+  deadlineDiv.innerHTML = `
       <div class="bg-${isUrgent ? "red" : "yellow"}-100 border-2 border-${
-      isUrgent ? "red" : "yellow"
-    }-300 rounded-xl p-4 text-center">
+    isUrgent ? "red" : "yellow"
+  }-300 rounded-xl p-4 text-center">
         <p class="text-${
           isUrgent ? "red" : "yellow"
         }-800 font-bold text-lg">⏰ Time Remaining: ${timeStr}</p>
@@ -1059,7 +1636,6 @@ function updateDeadlineDisplay(timeRemaining) {
         }-600 text-sm">Player 1 must reveal before deadline</p>
       </div>
     `;
-  }
 }
 
 // Helper function to get move name
@@ -1082,8 +1658,10 @@ function showGameResult(announcement, winner, game) {
     document.body.appendChild(resultDiv);
   }
 
-  const p1Move = getMoveName(game.player1Move);
-  const p2Move = getMoveName(game.player2Move);
+  // Game struct is an array: player1Move is at index 5
+  const p1Move = getMoveName(game[5] || game.player1Move);
+  // Game struct is an array: player2Move is at index 6
+  const p2Move = getMoveName(game[6] || game.player2Move);
 
   const isWin = winner === gameState.playerNumber;
   const isTie = winner === 0;
@@ -1139,9 +1717,6 @@ function showGameResult(announcement, winner, game) {
 
 // Event listeners
 document.getElementById("connectBtn").addEventListener("click", connectWallet);
-document
-  .getElementById("setContractBtn")
-  .addEventListener("click", setContractAddress);
 document.getElementById("createGameBtn").addEventListener("click", createGame);
 document.getElementById("joinGameBtn").addEventListener("click", joinGame);
 document
@@ -1165,37 +1740,77 @@ async function init() {
     await loadContractArtifact();
     await initNoir();
 
-    // Load contract address from addresses.json (prefer localhost for local testing)
+    // Load contract address from addresses.json
+    // Detect environment: use localhost only if we're on localhost, otherwise use sepolia
     try {
+      log(
+        `🔍 Loading addresses.json from ${window.location.origin}/addresses.json`
+      );
       const addressesResponse = await fetch("/addresses.json");
+      log(
+        `📡 Response status: ${addressesResponse.status} ${addressesResponse.statusText}`
+      );
+
       if (addressesResponse.ok) {
         const addresses = await addressesResponse.json();
-        // Check localhost first (for local testing), then sepolia
-        if (addresses.localhost?.rockPaperScissors) {
+        log(`📋 Loaded addresses.json:`, addresses);
+        const isLocalhost =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+        log(
+          `🌐 Environment: ${isLocalhost ? "localhost" : "production/sepolia"}`
+        );
+
+        // Check localhost first only if we're actually on localhost
+        if (isLocalhost && addresses.localhost?.rockPaperScissors) {
           CONTRACT_ADDRESS = addresses.localhost.rockPaperScissors;
-          document.getElementById("contractAddressInput").value =
-            CONTRACT_ADDRESS;
           log(`✅ Loaded localhost contract address: ${CONTRACT_ADDRESS}`);
+          updateContractAddressDisplay();
         } else if (addresses.sepolia?.rockPaperScissors) {
           CONTRACT_ADDRESS = addresses.sepolia.rockPaperScissors;
-          document.getElementById("contractAddressInput").value =
-            CONTRACT_ADDRESS;
           log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
+          updateContractAddressDisplay();
+        } else {
+          log(
+            `⚠️ No contract address found in addresses.json for ${
+              isLocalhost ? "localhost" : "sepolia"
+            }`
+          );
+          log(`📋 Available addresses:`, {
+            localhost: addresses.localhost?.rockPaperScissors || "empty",
+            sepolia: addresses.sepolia?.rockPaperScissors || "empty",
+          });
         }
+      } else {
+        log(
+          `⚠️ Failed to load addresses.json: ${addressesResponse.status} ${addressesResponse.statusText}`
+        );
       }
     } catch (error) {
       log(`⚠️ Could not load addresses.json: ${error.message}`);
+      console.error("Addresses loading error:", error);
     }
 
     log("🚀 Application ready!");
     if (CONTRACT_ADDRESS) {
       log("💡 Connect your wallet and switch to the correct network");
     } else {
-      log("💡 Enter contract address above or update addresses.json");
+      log(
+        "💡 Contract address will be loaded automatically from addresses.json"
+      );
     }
+
+    // Update contract address display (even if not loaded yet)
+    updateContractAddressDisplay();
 
     // Initialize button states
     updateButtonStates();
+
+    // Initialize step checkmarks
+    updateStepCheckmarks();
+
+    // Initialize game resolution status display
+    await updateGameResolutionStatus();
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
   }

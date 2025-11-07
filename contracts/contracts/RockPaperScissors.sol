@@ -17,9 +17,6 @@ contract RockPaperScissors {
     // Move values: Rock = 0, Paper = 1, Scissors = 2
     // Winner: 0 = tie, 1 = player1, 2 = player2
 
-    // Timeout for Player 1 to reveal after Player 2 joins (5 minutes)
-    uint256 public constant REVEAL_TIMEOUT = 5 minutes;
-
     enum GameStatus {
         WaitingForPlayer,
         Committed,
@@ -37,6 +34,7 @@ contract RockPaperScissors {
         uint8 player2Move;
         uint8 winner; // 0 = tie, 1 = player1, 2 = player2
         uint256 createdAt;
+        uint256 timeout; // Timeout in seconds for Player 1 to reveal after Player 2 joins
         uint256 revealDeadline; // Timestamp when P1 must reveal by
     }
 
@@ -52,7 +50,8 @@ contract RockPaperScissors {
     event GameCreated(
         uint256 indexed gameId,
         address indexed player1,
-        bytes32 commitment
+        bytes32 commitment,
+        uint256 timeout
     );
 
     event PlayerJoined(
@@ -93,9 +92,13 @@ contract RockPaperScissors {
     /**
      * @dev Create a new game with Player 1's commitment
      * @param commitment The hash of (move || salt) for Player 1
+     * @param timeout Timeout in seconds for Player 1 to reveal after Player 2 joins
      * @return gameId The ID of the newly created game
      */
-    function createGame(bytes32 commitment) external returns (uint256) {
+    function createGame(
+        bytes32 commitment,
+        uint256 timeout
+    ) external returns (uint256) {
         uint256 gameId = gameCounter++;
 
         games[gameId] = Game({
@@ -108,10 +111,11 @@ contract RockPaperScissors {
             player2Move: 255, // Invalid move (will be set when P2 joins)
             winner: 0,
             createdAt: block.timestamp,
+            timeout: timeout,
             revealDeadline: 0 // Will be set when P2 joins
         });
 
-        emit GameCreated(gameId, msg.sender, commitment);
+        emit GameCreated(gameId, msg.sender, commitment, timeout);
         return gameId;
     }
 
@@ -130,7 +134,7 @@ contract RockPaperScissors {
 
         game.player2 = msg.sender;
         game.player2Move = move2;
-        game.revealDeadline = block.timestamp + REVEAL_TIMEOUT;
+        game.revealDeadline = block.timestamp + game.timeout;
         game.status = GameStatus.Revealed; // Ready for P1 to reveal
 
         emit PlayerJoined(gameId, msg.sender, move2, game.revealDeadline);

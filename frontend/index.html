@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body class="py-8 px-4">
-  <div class="max-w-6xl mx-auto space-y-6">
+  <div class="max-w-[54rem] mx-auto space-y-6">
     <!-- Header -->
     <div class="glass-card rounded-3xl p-8 text-center bounce-in">
       <h1 class="game-font text-5xl md:text-6xl font-black mb-4 gradient-text">
@@ -17,10 +17,13 @@
       <p class="text-gray-600 text-lg">Play with Zero-Knowledge proofs on the blockchain</p>
     </div>
 
-    <!-- Setup Section -->
+    <!-- Connect Wallet -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">⚙️</span> Setup
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🔗</span> Step 1: Connect Wallet
+        </div>
+        <span id="step1Checkmark" class="text-2xl hidden">✅</span>
       </h2>
       <div class="space-y-4">
         <div class="flex flex-wrap gap-3 items-end">
@@ -29,41 +32,35 @@
           </button>
           <div id="walletInfo" class="flex-1 min-w-[200px]"></div>
         </div>
-        <div class="flex flex-wrap gap-3 items-end">
-          <input 
-            type="text" 
-            id="contractAddressInput" 
-            placeholder="0x..." 
-            class="flex-1 min-w-[300px] px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all outline-none"
-          >
-          <button id="setContractBtn" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl">
-            📝 Set Contract
-          </button>
-        </div>
       </div>
     </div>
 
-    <!-- Move Selection - MUST BE FIRST -->
+    <!-- Move Selection -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">✊</span> Step 1: Make Your Move
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">✊</span> Step 2: Make Your Move
+          <div class="relative group">
+            <span class="text-lg cursor-help">ℹ️</span>
+            <div class="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 shadow-xl">
+              <strong>Important:</strong> You must select your move BEFORE creating or joining a game!
+              <div class="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
+        </div>
+        <span id="step2Checkmark" class="text-2xl hidden">✅</span>
       </h2>
-      <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-3 mb-4">
-        <p class="text-sm text-yellow-800 font-semibold">
-          ⚠️ <strong>Important:</strong> You must select your move BEFORE creating or joining a game!
-        </p>
-      </div>
-      <div class="flex flex-wrap justify-center gap-6 mb-6">
-        <button id="rockBtn" class="move-btn rock-btn px-8 py-6 text-white font-bold text-xl rounded-2xl shadow-2xl min-w-[140px]">
-          <span class="text-4xl block mb-2">🪨</span>
+      <div class="flex flex-wrap justify-start gap-3 mb-4">
+        <button id="rockBtn" class="move-btn rock-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+          <span class="text-xl">🪨</span>
           <span>Rock</span>
         </button>
-        <button id="paperBtn" class="move-btn paper-btn px-8 py-6 text-white font-bold text-xl rounded-2xl shadow-2xl min-w-[140px]">
-          <span class="text-4xl block mb-2">📄</span>
+        <button id="paperBtn" class="move-btn paper-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+          <span class="text-xl">📄</span>
           <span>Paper</span>
         </button>
-        <button id="scissorsBtn" class="move-btn scissors-btn px-8 py-6 text-white font-bold text-xl rounded-2xl shadow-2xl min-w-[140px]">
-          <span class="text-4xl block mb-2">✂️</span>
+        <button id="scissorsBtn" class="move-btn scissors-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+          <span class="text-xl">✂️</span>
           <span>Scissors</span>
         </button>
       </div>
@@ -72,49 +69,106 @@
 
     <!-- Game Actions -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">🎯</span> Step 2: Game Actions
-      </h2>
-      <div class="flex flex-wrap gap-3 mb-4">
-        <div class="flex flex-col gap-2">
-          <button id="createGameBtn" class="px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200" disabled>
-            ✨ Create Game (Select move first)
-          </button>
-          <p class="text-xs text-gray-600">Player 1: Select move above, then create game</p>
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🎯</span> Step 2: Game Actions
         </div>
-        <div class="flex flex-col gap-2 flex-1 min-w-[200px]">
-          <div class="flex gap-3">
-            <input 
-              type="number" 
-              id="gameIdInput" 
-              placeholder="Enter Game ID" 
-              class="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all outline-none"
-            >
-            <button id="joinGameBtn" class="px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200" disabled>
-              🚀 Join Game
+        <span id="step2bCheckmark" class="text-2xl hidden">✅</span>
+      </h2>
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- Player 1: Create New Game -->
+        <div class="flex items-center gap-2 flex-1 min-w-[280px]">
+          <span class="text-sm font-semibold text-gray-700 whitespace-nowrap">Player 1:</span>
+          <input 
+            type="number" 
+            id="timeoutValue" 
+            value="5" 
+            min="1" 
+            class="w-16 px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="5"
+          />
+          <select 
+            id="timeoutUnit" 
+            class="px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="minutes">Min</option>
+            <option value="hours">Hr</option>
+            <option value="days">Day</option>
+          </select>
+          <div class="relative group flex-1 min-w-[140px]">
+            <button id="createGameBtn" class="w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap" disabled>
+              ✨ Create Game
             </button>
+            <div class="absolute left-0 bottom-full mb-2 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 shadow-xl pointer-events-none">
+              Select your move above first
+              <div class="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+            </div>
           </div>
-          <p class="text-xs text-gray-600">Player 2: Select move above, enter Game ID, then join</p>
+        </div>
+        
+        <!-- OR Divider with line -->
+        <div class="flex items-center gap-2">
+          <div class="flex-1 border-t border-gray-300"></div>
+          <span class="text-xs font-semibold text-gray-500 uppercase px-2">OR</span>
+          <div class="flex-1 border-t border-gray-300"></div>
+        </div>
+        
+        <!-- Player 2: Join Existing Game -->
+        <div class="flex items-center gap-2 flex-1 min-w-[280px]">
+          <span class="text-sm font-semibold text-gray-700 whitespace-nowrap">Player 2:</span>
+          <input 
+            type="number" 
+            id="gameIdInput" 
+            placeholder="Game ID" 
+            class="w-28 px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+          >
+          <div class="relative group flex-1 min-w-[140px]">
+            <button id="joinGameBtn" class="w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap" disabled>
+              🚀 Join
+            </button>
+            <div class="absolute left-0 bottom-full mb-2 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 shadow-xl pointer-events-none">
+              Select your move above first
+              <div class="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="gameStatus" class="mt-4"></div>
     </div>
 
     <!-- Game Resolution -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">🎯</span> Game Resolution
-      </h2>
-      <div class="flex flex-col items-center gap-4">
-        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 w-full">
-          <p class="text-sm text-blue-800 font-semibold mb-2">📋 New Flow:</p>
-          <ul class="text-xs text-blue-700 space-y-1 list-disc list-inside">
-            <li><strong>Player 1:</strong> Select move → Create game (move is committed)</li>
-            <li><strong>Player 2:</strong> Select move → Join game (move submitted directly)</li>
-            <li><strong>Player 1:</strong> Reveal move with ZK proof (within 5 minutes)</li>
-            <li><strong>Timeout:</strong> If Player 1 doesn't reveal in time, they forfeit</li>
-          </ul>
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🔓</span> Step 3: Game Resolution
+          <div class="relative group">
+            <span class="text-lg cursor-help">ℹ️</span>
+            <div class="absolute left-0 bottom-full mb-2 w-80 p-4 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 shadow-xl">
+              <ul class="space-y-1 list-disc list-inside">
+                <li><strong>Player 1:</strong> Select move → Create game (move is committed)</li>
+                <li><strong>Player 2:</strong> Select move → Join game (move submitted directly)</li>
+                <li><strong>Player 1:</strong> Reveal move with ZK proof (within timeout period)</li>
+                <li><strong>Timeout:</strong> If Player 1 doesn't reveal in time, they forfeit</li>
+              </ul>
+              <div class="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
         </div>
+        <span id="step3Checkmark" class="text-2xl hidden">✅</span>
+      </h2>
+      <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-3 mb-4">
+        <p class="text-sm text-yellow-800 font-semibold">
+          ⚠️ <strong>Note:</strong> This step is done by the game creator (Player 1)
+        </p>
+      </div>
+      <!-- Game Status Display -->
+      <div id="gameResolutionStatus" class="mb-4">
+        <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+          <p class="text-sm text-gray-600 text-left">
+            No active game. Create or join a game to see status here.
+          </p>
+        </div>
+      </div>
+      <div class="flex flex-col items-center gap-4">
         <div id="deadlineDisplay" class="w-full"></div>
         <div id="revealStatus"></div>
       </div>
@@ -127,6 +181,13 @@
       </h2>
       <div id="logs" class="bg-gray-50 rounded-xl p-3 max-h-96 overflow-y-auto border-2 border-gray-200">
         <!-- Log entries will be added here -->
+      </div>
+    </div>
+
+    <!-- Contract Address Display -->
+    <div class="glass-card rounded-3xl p-4 slide-up">
+      <div id="contractAddressDisplay" class="text-center text-sm text-gray-600">
+        <!-- Contract address will be displayed here -->
       </div>
     </div>
   </div>
