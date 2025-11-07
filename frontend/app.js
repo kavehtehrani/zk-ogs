@@ -1165,13 +1165,18 @@ async function init() {
     await loadContractArtifact();
     await initNoir();
 
-    // Load contract address from addresses.json (prefer localhost for local testing)
+    // Load contract address from addresses.json
+    // Detect environment: use localhost only if we're on localhost, otherwise use sepolia
     try {
       const addressesResponse = await fetch("/addresses.json");
       if (addressesResponse.ok) {
         const addresses = await addressesResponse.json();
-        // Check localhost first (for local testing), then sepolia
-        if (addresses.localhost?.rockPaperScissors) {
+        const isLocalhost =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+
+        // Check localhost first only if we're actually on localhost
+        if (isLocalhost && addresses.localhost?.rockPaperScissors) {
           CONTRACT_ADDRESS = addresses.localhost.rockPaperScissors;
           document.getElementById("contractAddressInput").value =
             CONTRACT_ADDRESS;
@@ -1181,10 +1186,21 @@ async function init() {
           document.getElementById("contractAddressInput").value =
             CONTRACT_ADDRESS;
           log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
+        } else {
+          log(
+            `⚠️ No contract address found in addresses.json for ${
+              isLocalhost ? "localhost" : "sepolia"
+            }`
+          );
         }
+      } else {
+        log(
+          `⚠️ Failed to load addresses.json: ${addressesResponse.status} ${addressesResponse.statusText}`
+        );
       }
     } catch (error) {
       log(`⚠️ Could not load addresses.json: ${error.message}`);
+      console.error("Addresses loading error:", error);
     }
 
     log("🚀 Application ready!");
