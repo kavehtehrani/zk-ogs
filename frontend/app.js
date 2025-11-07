@@ -228,7 +228,9 @@ async function connectWallet() {
     document.getElementById("walletInfo").innerHTML = `
       <div class="px-4 py-2 bg-gradient-to-r from-green-100 to-emerald-100 rounded-xl border-2 border-green-300">
         <p class="text-green-800 font-semibold">
-          ✅ Connected: <span class="font-mono">${address.slice(
+          ✅ Connected: 
+          <span class="font-mono break-all hidden sm:inline">${address}</span>
+          <span class="font-mono sm:hidden">${address.slice(
             0,
             6
           )}...${address.slice(-4)}</span>
@@ -253,6 +255,25 @@ async function connectWallet() {
     if (error.message.includes("JSON")) {
       log("💡 Make sure Hardhat node is running: npx hardhat node");
     }
+  }
+}
+
+// Convert timeout value and unit to seconds
+function convertTimeoutToSeconds(value, unit) {
+  const numValue = Number(value);
+  if (isNaN(numValue) || numValue <= 0) {
+    return 300; // Default to 5 minutes (300 seconds) if invalid
+  }
+
+  switch (unit) {
+    case "minutes":
+      return numValue * 60;
+    case "hours":
+      return numValue * 60 * 60;
+    case "days":
+      return numValue * 60 * 60 * 24;
+    default:
+      return 300; // Default to 5 minutes
   }
 }
 
@@ -301,7 +322,14 @@ async function createGame() {
     gameState.commitment = commitment;
     gameState.isCommitted = true;
 
-    const tx = await contract.createGame(commitment);
+    // Get timeout from UI inputs
+    const timeoutValue = document.getElementById("timeoutValue").value;
+    const timeoutUnit = document.getElementById("timeoutUnit").value;
+    const timeoutSeconds = convertTimeoutToSeconds(timeoutValue, timeoutUnit);
+
+    log(`Timeout: ${timeoutValue} ${timeoutUnit} (${timeoutSeconds} seconds)`);
+
+    const tx = await contract.createGame(commitment, timeoutSeconds);
     log(`Transaction sent: ${tx.hash}`);
 
     const receipt = await tx.wait();
