@@ -324,6 +324,11 @@
             },
             {
               "internalType": "uint256",
+              "name": "timeout",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
               "name": "revealDeadline",
               "type": "uint256"
             }

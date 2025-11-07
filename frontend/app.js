@@ -327,9 +327,24 @@ async function createGame() {
     const timeoutUnit = document.getElementById("timeoutUnit").value;
     const timeoutSeconds = convertTimeoutToSeconds(timeoutValue, timeoutUnit);
 
-    log(`Timeout: ${timeoutValue} ${timeoutUnit} (${timeoutSeconds} seconds)`);
+    // Ensure timeout is a proper integer (Ethereum expects uint256, which is whole seconds)
+    // JavaScript numbers are fine for values up to 2^53, but we should ensure it's an integer
+    const timeoutUint = Math.floor(timeoutSeconds);
 
-    const tx = await contract.createGame(commitment, timeoutSeconds);
+    if (timeoutUint <= 0 || timeoutUint > Number.MAX_SAFE_INTEGER) {
+      log(`❌ Invalid timeout value: ${timeoutUint} seconds`);
+      throw new Error(
+        `Invalid timeout: must be between 1 and ${Number.MAX_SAFE_INTEGER} seconds`
+      );
+    }
+
+    log(
+      `📋 Timeout input: ${timeoutValue} ${timeoutUnit} (${timeoutSeconds} seconds)`
+    );
+    log(`📋 Sending timeout to contract: ${timeoutUint} seconds (as uint256)`);
+
+    // Pass timeout as a number - ethers.js will handle the conversion to uint256
+    const tx = await contract.createGame(commitment, timeoutUint);
     log(`Transaction sent: ${tx.hash}`);
 
     const receipt = await tx.wait();
@@ -349,13 +364,26 @@ async function createGame() {
       const parsed = contract.interface.parseLog(event);
       gameState.gameId = parsed.args.gameId.toString();
       gameState.playerNumber = 1;
+
+      // Log timeout from event
+      const timeoutFromEvent = parsed.args.timeout;
+      const timeoutNum =
+        typeof timeoutFromEvent === "bigint"
+          ? Number(timeoutFromEvent)
+          : Number(timeoutFromEvent.toString());
+      log(`✅ Game created! Game ID: ${gameState.gameId}`);
+      log(
+        `📋 Timeout stored in contract: ${timeoutNum} seconds (${
+          timeoutNum / 60
+        } minutes)`
+      );
+      log("⏳ Waiting for Player 2 to join...");
+
       updateGameStatus();
       updateMoveStatus();
       updateRevealStatus();
       updateButtonStates(); // Disable create button after game is created
       updateStepCheckmarks(); // Update step checkmarks
-      log(`✅ Game created! Game ID: ${gameState.gameId}`);
-      log("⏳ Waiting for Player 2 to join...");
 
       // Start polling for game updates
       startGameResultPolling();
@@ -412,24 +440,81 @@ async function joinGame() {
     gameState.gameId = gameId;
     gameState.playerNumber = 2;
 
-    // Get deadline from event
-    const event = receipt.logs.find((log) => {
-      try {
-        const parsed = contract.interface.parseLog(log);
-        return parsed && parsed.name === "PlayerJoined";
-      } catch {
-        return false;
-      }
-    });
+    // Get deadline from event - handle both old and new event formats
+    let event = null;
+    let parsed = null;
 
-    if (event) {
-      const parsed = contract.interface.parseLog(event);
-      const deadline = Number(parsed.args.revealDeadline);
-      log(`✅ Joined game ${gameId}`);
+    for (const log of receipt.logs) {
+      try {
+        const tempParsed = contract.interface.parseLog(log);
+        if (tempParsed && tempParsed.name === "PlayerJoined") {
+          event = log;
+          parsed = tempParsed;
+          break;
+        }
+      } catch (e) {
+        // Continue searching
+      }
+    }
+
+    if (parsed && parsed.args) {
+      // Safely access revealDeadline - it might be at different positions
+      let deadlineBigInt = parsed.args.revealDeadline;
+      if (deadlineBigInt === undefined || deadlineBigInt === null) {
+        // Try accessing by index if named access fails
+        deadlineBigInt = parsed.args[3]; // revealDeadline is 4th arg (index 3)
+      }
+
+      if (deadlineBigInt !== undefined && deadlineBigInt !== null) {
+        const deadline =
+          typeof deadlineBigInt === "bigint"
+            ? Number(deadlineBigInt)
+            : Number(deadlineBigInt.toString());
+
+        // Get game data to log timeout
+        // Game struct is an array: timeout is at index 9
+        const game = await contract.getGame(gameId);
+        const timeoutBigInt = game[9] || game.timeout;
+        const timeoutNum =
+          typeof timeoutBigInt === "bigint"
+            ? Number(timeoutBigInt)
+            : timeoutBigInt !== undefined && timeoutBigInt !== null
+            ? Number(timeoutBigInt.toString())
+            : 0;
+
+        log(`✅ Joined game ${gameId}`);
+        log(
+          `📋 Timeout from contract: ${timeoutNum} seconds (${
+            timeoutNum / 60
+          } minutes)`
+        );
+        log(
+          `📋 Reveal deadline calculated: ${deadline} (${new Date(
+            deadline * 1000
+          ).toLocaleString()})`
+        );
+        log(
+          `⏰ Player 1 has until ${new Date(
+            deadline * 1000
+          ).toLocaleTimeString()} to reveal`
+        );
+
+        // Verify deadline calculation
+        const now = Math.floor(Date.now() / 1000);
+        const expectedDeadline = now + timeoutNum;
+        log(
+          `🔍 Verification: Current time: ${now}, Expected deadline: ${expectedDeadline}, Actual deadline: ${deadline}, Difference: ${
+            deadline - expectedDeadline
+          } seconds`
+        );
+      } else {
+        log(
+          `⚠️ Could not extract deadline from event, but join was successful`
+        );
+      }
+    } else {
       log(
-        `⏰ Player 1 has until ${new Date(
-          deadline * 1000
-        ).toLocaleTimeString()} to reveal`
+        `⚠️ PlayerJoined event not found in receipt, but join transaction succeeded`
       );
     }
 
@@ -679,7 +764,24 @@ async function updateGameResolutionStatus() {
 
   try {
     const game = await contract.getGame(gameState.gameId);
-    const statusNum = Number(game.status);
+
+    // Safely access struct fields - handle both array and object formats
+    // Game struct order: [gameId, player1, player2, status, player1Commitment, player1Move, player2Move, winner, createdAt, timeout, revealDeadline]
+    // Indices:           0       1        2        3      4                 5           6           7      8          9       10
+
+    // Check if it's an array or object
+    const isArray =
+      Array.isArray(game) ||
+      (typeof game === "object" && game.length !== undefined);
+
+    // Safely get status - try array index first, then named property
+    let statusValue;
+    if (isArray && game.length > 3) {
+      statusValue = game[3];
+    } else {
+      statusValue = game.status;
+    }
+    const statusNum = Number(statusValue);
 
     // Check if status actually changed - only update DOM if it did
     if (
@@ -716,8 +818,30 @@ async function updateGameResolutionStatus() {
       case 2: // Revealed
         statusDetails = "Player 2 joined. Player 1 must reveal move.";
         statusColor = "orange";
-        if (game.revealDeadline > 0) {
-          const deadline = Number(game.revealDeadline);
+        // Safely access revealDeadline - try array index first, then named property
+        let deadlineBigInt;
+        if (isArray && game.length > 10) {
+          deadlineBigInt = game[10];
+        } else {
+          deadlineBigInt = game.revealDeadline;
+        }
+        if (
+          deadlineBigInt &&
+          (typeof deadlineBigInt === "bigint"
+            ? deadlineBigInt > 0n
+            : Number(deadlineBigInt.toString()) > 0)
+        ) {
+          const deadline =
+            typeof deadlineBigInt === "bigint"
+              ? Number(deadlineBigInt)
+              : Number(deadlineBigInt.toString());
+
+          // Validate it's a timestamp, not a timeout value
+          if (deadline < 1000000000) {
+            // This is likely a timeout value, not a deadline timestamp
+            break;
+          }
+
           const now = Math.floor(Date.now() / 1000);
           const timeRemaining = deadline - now;
           if (timeRemaining > 0) {
@@ -734,7 +858,14 @@ async function updateGameResolutionStatus() {
         }
         break;
       case 3: // Completed
-        const winnerNum = Number(game.winner);
+        // Safely access winner - try array index first, then named property
+        let winnerValue;
+        if (isArray && game.length > 7) {
+          winnerValue = game[7];
+        } else {
+          winnerValue = game.winner;
+        }
+        const winnerNum = Number(winnerValue);
         if (winnerNum === 0) {
           statusDetails = "Game completed: It's a tie! 🤝";
           statusColor = "gray";
@@ -847,7 +978,8 @@ async function checkGameResult() {
 
   try {
     const game = await contract.getGame(gameState.gameId);
-    const statusNum = Number(game.status);
+    // Game struct is an array: status is at index 3
+    const statusNum = Number(game[3] || game.status);
 
     // Update game status display (includes deadline info)
     await updateGameStatus();
@@ -855,16 +987,38 @@ async function checkGameResult() {
 
     // If Player 2 just joined and Player 1 is watching, start deadline polling
     // Only start if deadline is actually set and valid
+    // Game struct is an array: player2 is at index 2, revealDeadline is at index 10
+    const player2 = game[2] || game.player2;
     if (
       statusNum === 2 &&
-      game.player2 !== ethers.ZeroAddress &&
-      gameState.playerNumber === 1 &&
-      game.revealDeadline > 0
+      player2 !== ethers.ZeroAddress &&
+      gameState.playerNumber === 1
     ) {
-      const deadlineNum = Number(game.revealDeadline);
+      // Game struct is an array: revealDeadline is at index 10
+      let deadlineBigInt = game[10] || game.revealDeadline;
+      const deadlineNum =
+        typeof deadlineBigInt === "bigint"
+          ? Number(deadlineBigInt)
+          : deadlineBigInt !== undefined && deadlineBigInt !== null
+          ? Number(deadlineBigInt.toString())
+          : 0;
+
+      // Validate it's a timestamp, not a timeout value
+      if (deadlineNum > 0 && deadlineNum < 1000000000) {
+        log(
+          `⚠️ WARNING: Deadline value ${deadlineNum} looks like a timeout, not a timestamp! Skipping deadline polling.`
+        );
+        return;
+      }
+
       const now = Math.floor(Date.now() / 1000);
       // Only start polling if deadline is in the future
-      if (deadlineNum > now && !deadlinePollInterval) {
+      if (deadlineNum > 0 && deadlineNum > now && !deadlinePollInterval) {
+        log(
+          `🔍 Starting deadline polling: deadline=${deadlineNum}, now=${now}, remaining=${
+            deadlineNum - now
+          }s`
+        );
         startDeadlinePolling();
       }
     }
@@ -902,8 +1056,10 @@ async function checkGameResult() {
       }
 
       log(`🎉 Game completed! Winner: ${winnerText}`);
-      log(`Player 1 played: ${getMoveName(game.player1Move)}`);
-      log(`Player 2 played: ${getMoveName(game.player2Move)}`);
+      // Game struct is an array: player1Move is at index 5
+      log(`Player 1 played: ${getMoveName(game[5] || game.player1Move)}`);
+      // Game struct is an array: player2Move is at index 6
+      log(`Player 2 played: ${getMoveName(game[6] || game.player2Move)}`);
     } else if (statusNum === 2) {
       // Status is "Revealed" - Player 2 joined, waiting for Player 1 to reveal
       if (gameState.playerNumber === 1) {
@@ -966,17 +1122,80 @@ async function resolveGame() {
     log("Getting game state from contract...");
     const game = await contract.getGame(gameState.gameId);
 
+    // Safely access struct fields - handle both array and object formats
+    // Game struct order: [gameId, player1, player2, status, player1Commitment, player1Move, player2Move, winner, createdAt, timeout, revealDeadline]
+    // Indices:           0       1        2        3      4                 5           6           7      8          9       10
+
+    // Check if it's an array or object
+    const isArray =
+      Array.isArray(game) ||
+      (typeof game === "object" && game.length !== undefined);
+
+    // Safely access fields - check bounds before accessing array indices
+    let player2, player2Move, timeoutBigInt, revealDeadlineBigInt;
+
+    if (isArray && game.length > 10) {
+      player2 = game[2];
+      player2Move = game[6];
+      timeoutBigInt = game[9];
+      revealDeadlineBigInt = game[10];
+    } else {
+      // Fall back to named properties
+      player2 = game.player2;
+      player2Move = game.player2Move;
+      timeoutBigInt = game.timeout;
+      revealDeadlineBigInt = game.revealDeadline;
+    }
+
+    // Debug logging
+    log(
+      `🔍 Game struct: player2=${player2}, player2Move=${player2Move}, isArray=${isArray}, length=${
+        game.length || "N/A"
+      }`
+    );
+    log(`🔍 timeout=${timeoutBigInt}, revealDeadline=${revealDeadlineBigInt}`);
+
     // Check that Player 2 has joined
-    if (game.player2 === ethers.ZeroAddress || game.player2Move === 255) {
+    if (player2 === ethers.ZeroAddress || player2Move === 255) {
       log("⏳ Waiting for Player 2 to join...");
       return;
     }
 
-    // Check deadline
-    const deadline = Number(game.revealDeadline);
+    // Convert BigNumber to number
+    const timeoutNum =
+      typeof timeoutBigInt === "bigint"
+        ? Number(timeoutBigInt)
+        : timeoutBigInt !== undefined && timeoutBigInt !== null
+        ? Number(timeoutBigInt.toString())
+        : 0;
+
+    const deadline =
+      typeof revealDeadlineBigInt === "bigint"
+        ? Number(revealDeadlineBigInt)
+        : revealDeadlineBigInt !== undefined && revealDeadlineBigInt !== null
+        ? Number(revealDeadlineBigInt.toString())
+        : 0;
+
     const now = Math.floor(Date.now() / 1000);
+
+    log(
+      `🔍 Deadline check: timeout=${timeoutNum}s, deadline=${deadline}, now=${now}`
+    );
+
+    if (deadline === 0 || deadline < 1000000000) {
+      log(
+        `❌ Invalid deadline value: ${deadline}. This looks like a timeout value, not a timestamp!`
+      );
+      log(
+        `💡 The deadline should be a Unix timestamp (>= 1000000000), but we got: ${deadline}`
+      );
+      return;
+    }
+
     if (now > deadline) {
-      log("❌ Deadline has passed. Game will be forfeited.");
+      log(
+        `❌ Deadline has passed. (deadline: ${deadline}, now: ${now}) Game will be forfeited.`
+      );
       return;
     }
 
@@ -987,7 +1206,14 @@ async function resolveGame() {
 
     // Get Player 2's move from contract (already stored)
     const move1 = Number(gameState.move);
-    const move2 = Number(game.player2Move);
+    // Safely access player2Move
+    let move2Value;
+    if (isArray && game.length > 6) {
+      move2Value = game[6];
+    } else {
+      move2Value = game.player2Move;
+    }
+    const move2 = Number(move2Value);
 
     // Validate moves
     if (move1 < 0 || move1 > 2 || move2 < 0 || move2 > 2) {
@@ -1222,7 +1448,8 @@ async function checkDeadline() {
 
   try {
     const game = await contract.getGame(gameState.gameId);
-    const isCompleted = game.status === 3; // GameStatus.Completed
+    // Game struct is an array: status is at index 3
+    const isCompleted = (game[3] || game.status) === 3; // GameStatus.Completed
 
     if (isCompleted) {
       // Game already resolved, stop polling
@@ -1234,11 +1461,41 @@ async function checkDeadline() {
     }
 
     // Only check deadline if Player 2 has joined and deadline is set
-    if (game.player2 === ethers.ZeroAddress) {
+    // Game struct is an array: player2 is at index 2
+    const player2 = game[2] || game.player2;
+    if (player2 === ethers.ZeroAddress) {
       return;
     }
 
-    const deadlineNum = Number(game.revealDeadline);
+    // Game struct is an array: timeout is at index 9, revealDeadline is at index 10
+    const timeoutBigInt = game[9] || game.timeout;
+    const revealDeadlineBigInt = game[10] || game.revealDeadline;
+
+    const timeoutNum =
+      typeof timeoutBigInt === "bigint"
+        ? Number(timeoutBigInt)
+        : timeoutBigInt !== undefined && timeoutBigInt !== null
+        ? Number(timeoutBigInt.toString())
+        : 0;
+
+    const deadlineNum =
+      typeof revealDeadlineBigInt === "bigint"
+        ? Number(revealDeadlineBigInt)
+        : revealDeadlineBigInt !== undefined && revealDeadlineBigInt !== null
+        ? Number(revealDeadlineBigInt.toString())
+        : 0;
+
+    // Validate deadline is a proper timestamp, not a timeout value
+    if (deadlineNum > 0 && deadlineNum < 1000000000) {
+      log(
+        `⚠️ WARNING: Deadline value ${deadlineNum} looks like a timeout (seconds), not a timestamp!`
+      );
+      log(
+        `⚠️ This suggests the contract may have returned timeout instead of revealDeadline`
+      );
+      return; // Don't proceed with invalid deadline
+    }
+
     // If deadline is 0 or invalid, don't check
     if (deadlineNum === 0 || isNaN(deadlineNum) || deadlineNum <= 0) {
       return;
@@ -1247,13 +1504,21 @@ async function checkDeadline() {
     const now = Math.floor(Date.now() / 1000);
     const timeRemaining = deadlineNum - now;
 
+    // Log deadline check details
+    log(
+      `🔍 Deadline check: timeout=${timeoutNum}s, deadline=${deadlineNum}, now=${now}, remaining=${timeRemaining}s`
+    );
+
     // Update deadline display
     updateDeadlineDisplay(timeRemaining);
 
     // If deadline passed and game not resolved, forfeit
     // Only forfeit if timeRemaining is actually negative (deadline has passed)
-    if (timeRemaining < 0 && game.status !== 3) {
-      log("⏰ Deadline passed! Forfeiting game...");
+    // Game struct is an array: status is at index 3
+    if (timeRemaining < 0 && (game[3] || game.status) !== 3) {
+      log(
+        `⏰ Deadline passed! (deadline: ${deadlineNum}, now: ${now}, diff: ${timeRemaining}s) Forfeiting game...`
+      );
       await forfeitGame();
     }
   } catch (error) {
@@ -1357,8 +1622,10 @@ function showGameResult(announcement, winner, game) {
     document.body.appendChild(resultDiv);
   }
 
-  const p1Move = getMoveName(game.player1Move);
-  const p2Move = getMoveName(game.player2Move);
+  // Game struct is an array: player1Move is at index 5
+  const p1Move = getMoveName(game[5] || game.player1Move);
+  // Game struct is an array: player2Move is at index 6
+  const p2Move = getMoveName(game[6] || game.player2Move);
 
   const isWin = winner === gameState.playerNumber;
   const isTie = winner === 0;
