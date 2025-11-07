@@ -62,13 +62,16 @@ async function initNoir() {
   }
 }
 
-// Logging utility
+// Logging utility - track last log entry for collapsing repeated messages
+let lastLogEntry = null;
+let lastLogMessage = null;
+let lastLogEmoji = null;
+let logRepeatCount = 0;
+
 function log(message) {
   const logsDiv = document.getElementById("logs");
-  const entry = document.createElement("div");
-  entry.className = "log-entry rounded-lg";
 
-  // Add emoji based on message type
+  // Determine emoji based on message type
   let emoji = "📝";
   if (message.includes("✅")) emoji = "✅";
   else if (message.includes("❌")) emoji = "❌";
@@ -78,33 +81,106 @@ function log(message) {
   else if (message.includes("⏳")) emoji = "⏳";
   else if (message.includes("🚀")) emoji = "🚀";
 
+  // Check if this is a repeat of the last message
+  if (lastLogEntry && lastLogMessage === message && lastLogEmoji === emoji) {
+    // Increment repeat count
+    logRepeatCount++;
+
+    // Update the last entry with the count badge
+    lastLogEntry.innerHTML = `
+      <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
+      <span class="ml-2">${emoji} ${message}</span>
+      <span class="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">${
+        logRepeatCount + 1
+      }</span>
+    `;
+
+    logsDiv.scrollTop = logsDiv.scrollHeight;
+    return;
+  }
+
+  // New message - reset repeat count and create new entry
+  logRepeatCount = 0;
+  const entry = document.createElement("div");
+  entry.className = "log-entry rounded-lg";
+
   entry.innerHTML = `
     <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
     <span class="ml-2">${emoji} ${message}</span>
   `;
   logsDiv.appendChild(entry);
   logsDiv.scrollTop = logsDiv.scrollHeight;
+
+  // Update tracking variables
+  lastLogEntry = entry;
+  lastLogMessage = message;
+  lastLogEmoji = emoji;
 }
 
-// Set contract address manually
-function setContractAddress() {
-  const address = document.getElementById("contractAddressInput").value.trim();
-  if (!ethers.isAddress(address)) {
-    log("❌ Invalid contract address");
-    return;
+// Update step checkmarks based on current state
+function updateStepCheckmarks() {
+  // Step 1: Connect Wallet - check if wallet is connected
+  const step1Checkmark = document.getElementById("step1Checkmark");
+  if (step1Checkmark) {
+    if (signer) {
+      step1Checkmark.classList.remove("hidden");
+    } else {
+      step1Checkmark.classList.add("hidden");
+    }
   }
 
-  CONTRACT_ADDRESS = address;
-  log(`✅ Contract address set: ${address}`);
+  // Step 2: Make Your Move - check if move is selected
+  const step2Checkmark = document.getElementById("step2Checkmark");
+  if (step2Checkmark) {
+    if (gameState.move !== null && gameState.move !== undefined) {
+      step2Checkmark.classList.remove("hidden");
+    } else {
+      step2Checkmark.classList.add("hidden");
+    }
+  }
 
-  // Connect contract if wallet is connected
-  if (signer && CONTRACT_ABI) {
-    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-    log("✅ Contract connected");
+  // Step 2b: Game Actions - check if game is created or joined
+  const step2bCheckmark = document.getElementById("step2bCheckmark");
+  if (step2bCheckmark) {
+    if (gameState.gameId !== null) {
+      step2bCheckmark.classList.remove("hidden");
+    } else {
+      step2bCheckmark.classList.add("hidden");
+    }
+  }
+
+  // Step 3: Game Resolution - check if game is resolved/completed
+  const step3Checkmark = document.getElementById("step3Checkmark");
+  if (step3Checkmark) {
+    if (gameState.isRevealed) {
+      step3Checkmark.classList.remove("hidden");
+    } else {
+      step3Checkmark.classList.add("hidden");
+    }
+  }
+}
+
+// Update contract address display at bottom of page
+function updateContractAddressDisplay() {
+  const displayDiv = document.getElementById("contractAddressDisplay");
+  if (!displayDiv) return;
+
+  if (CONTRACT_ADDRESS) {
+    const isLocalhost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    const network = isLocalhost ? "localhost" : "Sepolia";
+
+    displayDiv.innerHTML = `
+      <p class="text-gray-600 text-xs flex flex-wrap items-center gap-2">
+        <span class="font-semibold">Contract Address (${network}):</span>
+        <span class="font-mono text-purple-600 break-all">${CONTRACT_ADDRESS}</span>
+      </p>
+    `;
   } else {
-    log(
-      "⚠️ Connect wallet first, then contract will be connected automatically"
-    );
+    displayDiv.innerHTML = `
+      <p class="text-gray-500 text-xs">Contract address will be loaded automatically...</p>
+    `;
   }
 }
 
@@ -167,8 +243,11 @@ async function connectWallet() {
       contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       log("✅ Contract connected");
     } else {
-      log("⚠️ Enter contract address above and click 'Set Contract'");
+      log("⚠️ Contract address will be loaded automatically");
     }
+
+    // Update step checkmarks
+    updateStepCheckmarks();
   } catch (error) {
     log(`❌ Error connecting wallet: ${error.message}`);
     if (error.message.includes("JSON")) {
@@ -246,6 +325,7 @@ async function createGame() {
       updateMoveStatus();
       updateRevealStatus();
       updateButtonStates(); // Disable create button after game is created
+      updateStepCheckmarks(); // Update step checkmarks
       log(`✅ Game created! Game ID: ${gameState.gameId}`);
       log("⏳ Waiting for Player 2 to join...");
 
@@ -329,6 +409,7 @@ async function joinGame() {
     updateMoveStatus();
     updateRevealStatus();
     updateButtonStates(); // Update button states after joining
+    updateStepCheckmarks(); // Update step checkmarks
 
     // Start polling for game updates and deadline checking
     startGameResultPolling();
@@ -342,13 +423,64 @@ async function joinGame() {
   }
 }
 
+// Clear borders from all move buttons
+function clearMoveButtonBorders() {
+  const buttons = [
+    document.getElementById("rockBtn"),
+    document.getElementById("paperBtn"),
+    document.getElementById("scissorsBtn"),
+  ];
+
+  buttons.forEach((btn) => {
+    if (btn) {
+      btn.classList.remove(
+        "border-4",
+        "border-yellow-400",
+        "ring-4",
+        "ring-yellow-200"
+      );
+    }
+  });
+}
+
 // Select move (for both players)
 // For Player 1: stores move locally, will be committed when creating game
 // For Player 2: stores move locally, will be submitted when joining game
 function selectMove(move) {
   gameState.move = move;
+
+  // Update button borders to show selection
+  const buttons = [
+    document.getElementById("rockBtn"),
+    document.getElementById("paperBtn"),
+    document.getElementById("scissorsBtn"),
+  ];
+
+  buttons.forEach((btn, index) => {
+    if (btn) {
+      if (index === move) {
+        // Add border to selected button
+        btn.classList.add(
+          "border-4",
+          "border-yellow-400",
+          "ring-4",
+          "ring-yellow-200"
+        );
+      } else {
+        // Remove border from other buttons
+        btn.classList.remove(
+          "border-4",
+          "border-yellow-400",
+          "ring-4",
+          "ring-yellow-200"
+        );
+      }
+    }
+  });
+
   updateMoveStatus();
   updateButtonStates();
+  updateStepCheckmarks();
   log(
     `✅ Move selected: ${
       move === 0 ? "Rock" : move === 1 ? "Paper" : "Scissors"
@@ -488,15 +620,37 @@ async function serializeProof(proof) {
   }
 }
 
+// Track last rendered status to avoid unnecessary DOM updates
+let lastRenderedStatus = null;
+let lastRenderedGameId = null;
+let lastRenderedPlayerNumber = null;
+
 // Update game status display
 async function updateGameStatus() {
   if (!contract || !gameState.gameId) return;
 
   try {
     const game = await contract.getGame(gameState.gameId);
+    const statusNum = Number(game.status);
     const statusText = ["Waiting", "Committed", "Revealed", "Completed"][
-      game.status
+      statusNum
     ];
+
+    // Check if status actually changed - only update DOM if it did
+    if (
+      lastRenderedStatus === statusNum &&
+      lastRenderedGameId === gameState.gameId &&
+      lastRenderedPlayerNumber === gameState.playerNumber
+    ) {
+      // Status hasn't changed, skip DOM update to avoid distracting refresh
+      return;
+    }
+
+    // Status changed, update the display
+    lastRenderedStatus = statusNum;
+    lastRenderedGameId = gameState.gameId;
+    lastRenderedPlayerNumber = gameState.playerNumber;
+
     const statusClass = `status-${statusText.toLowerCase()}`;
 
     let deadlineHtml = "";
@@ -545,6 +699,7 @@ function updateMoveStatus() {
   if (!moveStatusDiv) return;
 
   if (gameState.move === null || gameState.move === undefined) {
+    clearMoveButtonBorders();
     moveStatusDiv.innerHTML = `
       <div class="bg-gray-50 rounded-xl p-4 border-2 border-gray-200">
         <p class="text-gray-600 text-center">
@@ -555,27 +710,29 @@ function updateMoveStatus() {
     return;
   }
 
-  const moveNames = ["🪨 Rock", "📄 Paper", "✂️ Scissors"];
-  const moveEmojis = ["🪨", "📄", "✂️"];
-  moveStatusDiv.innerHTML = `
-    <div class="bg-white rounded-xl p-4 border-2 border-gray-200 slide-up">
-      <div class="flex items-center justify-center gap-3">
-        <span class="text-4xl">${moveEmojis[gameState.move]}</span>
-        <div class="text-left">
-          <p class="text-lg font-bold text-gray-800">${
-            moveNames[gameState.move]
-          }</p>
-          <p class="text-sm ${
-            gameState.isCommitted
-              ? "text-green-600 font-semibold"
-              : "text-gray-500"
-          }">
-            ${gameState.isCommitted ? "✅ Committed" : "⏳ Ready to use"}
-          </p>
+  // Only show status if move is committed, otherwise the border on the button shows selection
+  if (gameState.isCommitted) {
+    const moveNames = ["🪨 Rock", "📄 Paper", "✂️ Scissors"];
+    const moveEmojis = ["🪨", "📄", "✂️"];
+    moveStatusDiv.innerHTML = `
+      <div class="bg-white rounded-xl p-4 border-2 border-gray-200 slide-up">
+        <div class="flex items-center justify-center gap-3">
+          <span class="text-4xl">${moveEmojis[gameState.move]}</span>
+          <div class="text-left">
+            <p class="text-lg font-bold text-gray-800">${
+              moveNames[gameState.move]
+            }</p>
+            <p class="text-sm text-green-600 font-semibold">
+              ✅ Committed
+            </p>
+          </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
+  } else {
+    // Clear the status div when move is selected but not committed
+    moveStatusDiv.innerHTML = "";
+  }
 }
 
 // Update reveal status
@@ -893,6 +1050,7 @@ async function resolveGame() {
       log(`🎉 Winner: ${winner === 0 ? "Tie" : `Player ${winner}`}`);
 
       gameState.isRevealed = true;
+      updateStepCheckmarks(); // Update step checkmarks
 
       // Start polling for final result
       setTimeout(() => {
@@ -1139,9 +1297,6 @@ function showGameResult(announcement, winner, game) {
 
 // Event listeners
 document.getElementById("connectBtn").addEventListener("click", connectWallet);
-document
-  .getElementById("setContractBtn")
-  .addEventListener("click", setContractAddress);
 document.getElementById("createGameBtn").addEventListener("click", createGame);
 document.getElementById("joinGameBtn").addEventListener("click", joinGame);
 document
@@ -1189,22 +1344,12 @@ async function init() {
         // Check localhost first only if we're actually on localhost
         if (isLocalhost && addresses.localhost?.rockPaperScissors) {
           CONTRACT_ADDRESS = addresses.localhost.rockPaperScissors;
-          const inputEl = document.getElementById("contractAddressInput");
-          if (inputEl) {
-            inputEl.value = CONTRACT_ADDRESS;
-            log(`✅ Loaded localhost contract address: ${CONTRACT_ADDRESS}`);
-          } else {
-            log(`⚠️ Contract address input field not found`);
-          }
+          log(`✅ Loaded localhost contract address: ${CONTRACT_ADDRESS}`);
+          updateContractAddressDisplay();
         } else if (addresses.sepolia?.rockPaperScissors) {
           CONTRACT_ADDRESS = addresses.sepolia.rockPaperScissors;
-          const inputEl = document.getElementById("contractAddressInput");
-          if (inputEl) {
-            inputEl.value = CONTRACT_ADDRESS;
-            log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
-          } else {
-            log(`⚠️ Contract address input field not found`);
-          }
+          log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
+          updateContractAddressDisplay();
         } else {
           log(
             `⚠️ No contract address found in addresses.json for ${
@@ -1230,11 +1375,19 @@ async function init() {
     if (CONTRACT_ADDRESS) {
       log("💡 Connect your wallet and switch to the correct network");
     } else {
-      log("💡 Enter contract address above or update addresses.json");
+      log(
+        "💡 Contract address will be loaded automatically from addresses.json"
+      );
     }
+
+    // Update contract address display (even if not loaded yet)
+    updateContractAddressDisplay();
 
     // Initialize button states
     updateButtonStates();
+
+    // Initialize step checkmarks
+    updateStepCheckmarks();
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
   }

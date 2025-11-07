@@ -17,10 +17,13 @@
       <p class="text-gray-600 text-lg">Play with Zero-Knowledge proofs on the blockchain</p>
     </div>
 
-    <!-- Setup Section -->
+    <!-- Connect Wallet -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">⚙️</span> Setup
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🔗</span> Step 1: Connect Wallet
+        </div>
+        <span id="step1Checkmark" class="text-2xl hidden">✅</span>
       </h2>
       <div class="space-y-4">
         <div class="flex flex-wrap gap-3 items-end">
@@ -29,24 +32,16 @@
           </button>
           <div id="walletInfo" class="flex-1 min-w-[200px]"></div>
         </div>
-        <div class="flex flex-wrap gap-3 items-end">
-          <input 
-            type="text" 
-            id="contractAddressInput" 
-            placeholder="0x..." 
-            class="flex-1 min-w-[300px] px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all outline-none"
-          >
-          <button id="setContractBtn" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl">
-            📝 Set Contract
-          </button>
-        </div>
       </div>
     </div>
 
-    <!-- Move Selection - MUST BE FIRST -->
+    <!-- Move Selection -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">✊</span> Step 1: Make Your Move
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">✊</span> Step 2: Make Your Move
+        </div>
+        <span id="step2Checkmark" class="text-2xl hidden">✅</span>
       </h2>
       <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-3 mb-4">
         <p class="text-sm text-yellow-800 font-semibold">
@@ -72,8 +67,11 @@
 
     <!-- Game Actions -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">🎯</span> Step 2: Game Actions
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🎯</span> Step 2 (continued): Game Actions
+        </div>
+        <span id="step2bCheckmark" class="text-2xl hidden">✅</span>
       </h2>
       <div class="flex flex-wrap gap-3 mb-4">
         <div class="flex flex-col gap-2">
@@ -102,12 +100,19 @@
 
     <!-- Game Resolution -->
     <div class="glass-card rounded-3xl p-6 slide-up">
-      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-        <span class="text-3xl">🎯</span> Game Resolution
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🔓</span> Step 3: Game Resolution
+        </div>
+        <span id="step3Checkmark" class="text-2xl hidden">✅</span>
       </h2>
+      <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-3 mb-4">
+        <p class="text-sm text-yellow-800 font-semibold">
+          ⚠️ <strong>Note:</strong> This step is done by the game creator (Player 1)
+        </p>
+      </div>
       <div class="flex flex-col items-center gap-4">
         <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 w-full">
-          <p class="text-sm text-blue-800 font-semibold mb-2">📋 New Flow:</p>
           <ul class="text-xs text-blue-700 space-y-1 list-disc list-inside">
             <li><strong>Player 1:</strong> Select move → Create game (move is committed)</li>
             <li><strong>Player 2:</strong> Select move → Join game (move submitted directly)</li>
@@ -127,6 +132,13 @@
       </h2>
       <div id="logs" class="bg-gray-50 rounded-xl p-3 max-h-96 overflow-y-auto border-2 border-gray-200">
         <!-- Log entries will be added here -->
+      </div>
+    </div>
+
+    <!-- Contract Address Display -->
+    <div class="glass-card rounded-3xl p-4 slide-up">
+      <div id="contractAddressDisplay" class="text-center text-sm text-gray-600">
+        <!-- Contract address will be displayed here -->
       </div>
     </div>
   </div>
