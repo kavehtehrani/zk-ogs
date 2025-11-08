@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {BaseScript} from "./base/BaseScript.sol";
 import {BaseScriptWithAddresses} from "./base/BaseScriptWithAddresses.sol";
@@ -12,6 +15,8 @@ import {LiquidityHelpers} from "./base/LiquidityHelpers.sol";
 
 contract CreatePoolAndAddLiquidityScript is BaseScriptWithAddresses {
     using CurrencyLibrary for Currency;
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
     using LiquidityHelpers for *;
 
     /////////////////////////////////////
@@ -77,8 +82,32 @@ contract CreatePoolAndAddLiquidityScript is BaseScriptWithAddresses {
         vm.startBroadcast();
         LiquidityHelpers.tokenApprovals(currency0, currency1, token0, token1, permit2, positionManager);
 
-        // Initialize Pool first
-        poolManager.initialize(poolKey, startingPrice);
+        // Check if pool is already initialized
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        if (sqrtPriceX96 == 0) {
+            // Pool not initialized, initialize it
+            poolManager.initialize(poolKey, startingPrice);
+        } else {
+            // Pool already initialized, use existing price
+            startingPrice = sqrtPriceX96;
+            currentTick = TickMath.getTickAtSqrtPrice(startingPrice);
+            tickLower = LiquidityHelpers.truncateTickSpacing((currentTick - 750 * tickSpacing), tickSpacing);
+            tickUpper = LiquidityHelpers.truncateTickSpacing((currentTick + 750 * tickSpacing), tickSpacing);
+            
+            // Recalculate liquidity with the existing price
+            liquidity = LiquidityAmounts.getLiquidityForAmounts(
+                startingPrice,
+                TickMath.getSqrtPriceAtTick(tickLower),
+                TickMath.getSqrtPriceAtTick(tickUpper),
+                token0Amount,
+                token1Amount
+            );
+            
+            // Recreate the mint params with updated values
+            (actions, mintParams) = LiquidityHelpers._mintLiquidityParams(
+                poolKey, tickLower, tickUpper, liquidity, amount0Max, amount1Max, deployerAddress, hookData
+            );
+        }
 
         // Then add liquidity via multicall
         bytes[] memory params = new bytes[](1);
