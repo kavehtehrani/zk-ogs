@@ -9,11 +9,13 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {BaseScript} from "./base/BaseScript.sol";
+import {BaseScriptWithAddresses} from "./base/BaseScriptWithAddresses.sol";
 import {LiquidityHelpers} from "./base/LiquidityHelpers.sol";
 
-contract AddLiquidityScript is BaseScript, LiquidityHelpers {
+contract AddLiquidityScript is BaseScriptWithAddresses {
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
+    using LiquidityHelpers for *;
 
     /////////////////////////////////////
     // --- Configure These ---
@@ -53,8 +55,8 @@ contract AddLiquidityScript is BaseScript, LiquidityHelpers {
 
         int24 currentTick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
 
-        tickLower = truncateTickSpacing((currentTick - 1000 * tickSpacing), tickSpacing);
-        tickUpper = truncateTickSpacing((currentTick + 1000 * tickSpacing), tickSpacing);
+        tickLower = LiquidityHelpers.truncateTickSpacing((currentTick - 1000 * tickSpacing), tickSpacing);
+        tickUpper = LiquidityHelpers.truncateTickSpacing((currentTick + 1000 * tickSpacing), tickSpacing);
 
         // Converts token amounts to liquidity units
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -69,7 +71,7 @@ contract AddLiquidityScript is BaseScript, LiquidityHelpers {
         uint256 amount0Max = token0Amount + 1 wei;
         uint256 amount1Max = token1Amount + 1 wei;
 
-        (bytes memory actions, bytes[] memory mintParams) = _mintLiquidityParams(
+        (bytes memory actions, bytes[] memory mintParams) = LiquidityHelpers._mintLiquidityParams(
             poolKey, tickLower, tickUpper, liquidity, amount0Max, amount1Max, deployerAddress, hookData
         );
 
@@ -85,7 +87,7 @@ contract AddLiquidityScript is BaseScript, LiquidityHelpers {
         uint256 valueToPass = currency0.isAddressZero() ? amount0Max : 0;
 
         vm.startBroadcast();
-        tokenApprovals();
+        LiquidityHelpers.tokenApprovals(currency0, currency1, token0, token1, permit2, positionManager);
 
         // Add liquidity to existing pool
         positionManager.multicall{value: valueToPass}(params);

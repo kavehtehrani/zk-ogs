@@ -4,9 +4,10 @@ pragma solidity ^0.8.26;
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 
 import {BaseScript} from "./base/BaseScript.sol";
+import {BaseScriptWithAddresses} from "./base/BaseScriptWithAddresses.sol";
 import {SenderRelayRouter} from "../src/router/SenderRelayRouter.sol";
 
-contract SwapScript is BaseScript {
+contract SwapScript is BaseScriptWithAddresses {
     /////////////////////////////////////
     // --- Configure These ---
     /////////////////////////////////////
@@ -41,6 +42,9 @@ contract SwapScript is BaseScript {
         // Cast swapRouter to SenderRelayRouter to access commitment hash functionality
         SenderRelayRouter relayRouter = SenderRelayRouter(payable(address(swapRouter)));
 
+        // Get the deployer address for receiver
+        address receiver = deployerAddress;
+
         // Execute swap with or without commitment hash
         if (commitmentHash != bytes32(0)) {
             // Swap with commitment hash for RPS game
@@ -51,7 +55,7 @@ contract SwapScript is BaseScript {
                 poolKey: poolKey,
                 commitmentHash: commitmentHash,
                 hookData: hookData,
-                receiver: address(this),
+                receiver: receiver,
                 deadline: block.timestamp + 30
             });
         } else {
@@ -62,7 +66,7 @@ contract SwapScript is BaseScript {
                 zeroForOne: zeroForOne,
                 poolKey: poolKey,
                 hookData: hookData,
-                receiver: address(this),
+                receiver: receiver,
                 deadline: block.timestamp + 30
             });
         }

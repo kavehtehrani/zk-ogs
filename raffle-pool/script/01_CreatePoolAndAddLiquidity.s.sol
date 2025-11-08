@@ -7,10 +7,12 @@ import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {BaseScript} from "./base/BaseScript.sol";
+import {BaseScriptWithAddresses} from "./base/BaseScriptWithAddresses.sol";
 import {LiquidityHelpers} from "./base/LiquidityHelpers.sol";
 
-contract CreatePoolAndAddLiquidityScript is BaseScript, LiquidityHelpers {
+contract CreatePoolAndAddLiquidityScript is BaseScriptWithAddresses {
     using CurrencyLibrary for Currency;
+    using LiquidityHelpers for *;
 
     /////////////////////////////////////
     // --- Configure These ---
@@ -49,8 +51,8 @@ contract CreatePoolAndAddLiquidityScript is BaseScript, LiquidityHelpers {
 
         int24 currentTick = TickMath.getTickAtSqrtPrice(startingPrice);
 
-        tickLower = truncateTickSpacing((currentTick - 750 * tickSpacing), tickSpacing);
-        tickUpper = truncateTickSpacing((currentTick + 750 * tickSpacing), tickSpacing);
+        tickLower = LiquidityHelpers.truncateTickSpacing((currentTick - 750 * tickSpacing), tickSpacing);
+        tickUpper = LiquidityHelpers.truncateTickSpacing((currentTick + 750 * tickSpacing), tickSpacing);
 
         // Converts token amounts to liquidity units
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -65,28 +67,26 @@ contract CreatePoolAndAddLiquidityScript is BaseScript, LiquidityHelpers {
         uint256 amount0Max = token0Amount + 1;
         uint256 amount1Max = token1Amount + 1;
 
-        (bytes memory actions, bytes[] memory mintParams) = _mintLiquidityParams(
+        (bytes memory actions, bytes[] memory mintParams) = LiquidityHelpers._mintLiquidityParams(
             poolKey, tickLower, tickUpper, liquidity, amount0Max, amount1Max, deployerAddress, hookData
-        );
-
-        // multicall parameters
-        bytes[] memory params = new bytes[](2);
-
-        // Initialize Pool
-        params[0] = abi.encodeWithSelector(positionManager.initializePool.selector, poolKey, startingPrice, hookData);
-
-        // Mint Liquidity
-        params[1] = abi.encodeWithSelector(
-            positionManager.modifyLiquidities.selector, abi.encode(actions, mintParams), block.timestamp + 3600
         );
 
         // If the pool is an ETH pair, native tokens are to be transferred
         uint256 valueToPass = currency0.isAddressZero() ? amount0Max : 0;
 
         vm.startBroadcast();
-        tokenApprovals();
+        LiquidityHelpers.tokenApprovals(currency0, currency1, token0, token1, permit2, positionManager);
 
-        // Multicall to atomically create pool & add liquidity
+        // Initialize Pool first
+        poolManager.initialize(poolKey, startingPrice);
+
+        // Then add liquidity via multicall
+        bytes[] memory params = new bytes[](1);
+        params[0] = abi.encodeWithSelector(
+            positionManager.modifyLiquidities.selector, abi.encode(actions, mintParams), block.timestamp + 3600
+        );
+
+        // Multicall to add liquidity
         positionManager.multicall{value: valueToPass}(params);
         vm.stopBroadcast();
     }

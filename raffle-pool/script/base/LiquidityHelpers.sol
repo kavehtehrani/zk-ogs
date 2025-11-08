@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {IPermit2} from "permit2/src/interfaces/IPermit2.sol";
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 
-import {BaseScript} from "./BaseScript.sol";
-
-contract LiquidityHelpers is BaseScript {
+/// @notice Helper functions for liquidity operations
+/// @dev Used as a mixin - requires the contract to have currency0, currency1, token0, token1, permit2, positionManager
+library LiquidityHelpers {
     using CurrencyLibrary for Currency;
 
     function _mintLiquidityParams(
@@ -33,7 +36,14 @@ contract LiquidityHelpers is BaseScript {
         return (actions, params);
     }
 
-    function tokenApprovals() public {
+    function tokenApprovals(
+        Currency currency0,
+        Currency currency1,
+        IERC20 token0,
+        IERC20 token1,
+        IPermit2 permit2,
+        IPositionManager positionManager
+    ) internal {
         if (!currency0.isAddressZero()) {
             token0.approve(address(permit2), type(uint256).max);
             permit2.approve(address(token0), address(positionManager), type(uint160).max, type(uint48).max);

@@ -33,5 +33,10 @@ contract DeployLocalV4 is BaseScript {
         console2.log("Deployed V4PoolManager at:", address(poolManager));
         console2.log("Deployed V4PositionManager at:", address(positionManager));
         console2.log("Deployed V4SwapRouter at:", address(swapRouter));
+        console2.log("");
+        console2.log("Save these addresses for use in other scripts:");
+        console2.log("export POOL_MANAGER_ADDRESS=", address(poolManager));
+        console2.log("export POSITION_MANAGER_ADDRESS=", address(positionManager));
+        console2.log("export ROUTER_ADDRESS=", address(baseRouter));
     }
 }
