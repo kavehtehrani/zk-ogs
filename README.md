@@ -6,7 +6,7 @@
 ![Vite](https://img.shields.io/badge/Vite-4.x-646CFF?logo=vite)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js)
 
-A fully functional zero-knowledge rock-paper-scissors game where players commit moves, reveal with ZK proofs, and resolve games on-chain. Built with **Noir**, **Barretenberg**, **Hardhat 3**, and **Ethereum**.
+A fully functional zero-knowledge rock-paper-scissors game where Player 1 commits their move, Player 2 joins with their move directly, and Player 1 reveals with ZK proofs to resolve the game on-chain. Built with **Noir**, **Barretenberg**, **Hardhat 3**, and **Ethereum**.
 
 ## Overview
 
@@ -20,7 +20,8 @@ Players generate cryptographic zero-knowledge proofs using Noir circuits that pr
 
 - ✅ Real ZK proofs generated client-side using NoirJS and Barretenberg backend
 - ✅ Proofs verified locally before submission
-- ✅ Commit-reveal scheme prevents front-running
+- ✅ Commit-reveal scheme for Player 1 prevents front-running
+- ✅ Player 2 submits move directly when joining (no commit/reveal needed)
 - ⏳ On-chain proof verification (requires verifier contract generation)
 
 ## Technology Stack
@@ -68,30 +69,37 @@ fn main(
 
 ### Proof Generation Flow
 
-1. **Both players reveal their moves** (already committed with Keccak256 hashes)
-2. **Frontend computes expected winner** using the same logic as the contract
-3. **Noir circuit executes** with moves and winner as inputs
-4. **Barretenberg backend generates a proof** proving the computation is correct
-5. **Proof is verified locally** before sending to contract
-6. **Proof is sent to contract** (on-chain verification pending)
+1. **Player 2 joins** and submits their move directly to the contract
+2. **Player 1 reveals their move** (move + salt) after Player 2 has joined
+3. **Frontend computes expected winner** using the same logic as the contract
+4. **Noir circuit executes** with both moves and winner as inputs
+5. **Barretenberg backend generates a proof** proving the computation is correct
+6. **Proof is verified locally** before sending to contract
+7. **Proof is sent to contract** via `resolveGame()` (on-chain verification pending)
 
 ### Commit-Reveal Scheme
 
 To prevent front-running and ensure fair play:
 
-1. **Commit Phase**:
+1. **Player 1 Commit Phase**:
 
-   - Players generate random salt
-   - Create commitment: `keccak256(move || salt)`
-   - Submit commitment hash to contract (move is hidden)
+   - Player 1 generates random salt
+   - Creates commitment: `keccak256(move || salt)`
+   - Submits commitment hash to contract via `createGame()` (move is hidden)
 
-2. **Reveal Phase**:
+2. **Player 2 Join Phase**:
 
-   - Players reveal move + salt
+   - Player 2 joins the game and submits their move directly via `joinGame()`
+   - No commit/reveal needed for Player 2 (move is stored on-chain immediately)
+   - Sets a deadline for Player 1 to reveal
+
+3. **Player 1 Reveal Phase**:
+
+   - Player 1 reveals move + salt via `resolveGame()`
    - Contract verifies `keccak256(move || salt) == commitment`
    - ZK proof generated proving winner calculation
 
-3. **Resolution**:
+4. **Resolution**:
    - Contract's `_resolveGame()` determines winner
    - ZK proof proves this calculation is correct
 
@@ -100,18 +108,13 @@ To prevent front-running and ensure fair play:
 ```
 Player 1                     Contract                    Player 2
    |                            |                            |
-   |-- createGame() ----------->|                            |
+   |-- createGame(commitment) ->|                            |
    |                            |                            |
-   |                            |<-- joinGame() ------------|
+   |                            |<-- joinGame(move) ------|
+   |                            |    (move stored on-chain) |
    |                            |                            |
-   |-- commitMove(hash) ------->|                            |
-   |                            |<-- commitMove(hash) -------|
-   |                            |                            |
-   |-- revealMove(move+salt) -->|                            |
+   |-- resolveGame(move+salt) ->|                            |
    |     + ZK proof             |                            |
-   |                            |<-- revealMove(move+salt) --|
-   |                            |     + ZK proof             |
-   |                            |                            |
    |                            |-- _resolveGame() ----------|
    |<-- GameResolved event -----|                            |
 ```
@@ -257,49 +260,53 @@ npx hardhat run scripts/fundWallet.ts --network localhost <YOUR_METAMASK_ADDRESS
 
 1. **Connect Wallet**: Click "Connect Wallet" in the UI
 2. **Create/Join Game**:
-   - Player 1: Click "Create Game"
-   - Player 2: Enter Game ID and click "Join Game"
-3. **Commit Move**: Click Rock 🪨, Paper 📄, or Scissors ✂️
-4. **Reveal Move**: After both players commit, click "Reveal Move"
+   - Player 1: Select move (Rock 🪨, Paper 📄, or Scissors ✂️), then click "Create Game"
+   - Player 2: Select move, enter Game ID, then click "Join Game" (move is submitted directly)
+3. **Resolve Game** (Player 1 only):
+   - After Player 2 joins, Player 1 clicks "Resolve Game"
    - Frontend generates ZK proof proving winner calculation
    - Proof is verified locally before submission
-5. **View Result**: Winner is announced after both reveals
+   - Player 1's move and proof are submitted to contract
+4. **View Result**: Winner is announced after resolution
 
 ## How It Works
 
 ### ZK Proof Generation
 
-When a player reveals their move (and opponent has also revealed):
+When Player 1 resolves the game (after Player 2 has joined):
 
-1. **Compute Witness**: Noir circuit executes with:
+1. **Player 2's move** is already stored on-chain from `joinGame()`
 
-   - `player1_move`: Field (private)
-   - `player2_move`: Field (private)
+2. **Compute Witness**: Noir circuit executes with:
+
+   - `player1_move`: Field (private - from Player 1's reveal)
+   - `player2_move`: Field (private - already on-chain from Player 2's join)
    - `winner`: Field (public - computed result)
 
-2. **Generate Proof**: Barretenberg backend creates a PLONK proof proving:
+3. **Generate Proof**: Barretenberg backend creates a PLONK proof proving:
 
    - Moves are valid (0, 1, or 2)
    - Winner calculation matches circuit logic
    - Public output matches computed result
 
-3. **Verify Locally**: Proof is verified before submission to ensure validity
+4. **Verify Locally**: Proof is verified before submission to ensure validity
 
-4. **Submit to Contract**: Proof bytes are sent (on-chain verification pending)
+5. **Submit to Contract**: Proof bytes are sent via `resolveGame()` (on-chain verification pending)
 
 ### Smart Contract Logic
 
 The contract handles:
 
-- **Game State**: Manages game lifecycle (Waiting → Committed → Revealed → Completed)
-- **Commitment Verification**: Validates `keccak256(move || salt) == commitment`
+- **Game State**: Manages game lifecycle (WaitingForPlayer → Committed → Revealed → Completed)
+- **Player 1 Commitment**: Validates `keccak256(move || salt) == commitment` when Player 1 resolves
+- **Player 2 Move**: Stored directly on-chain when Player 2 joins (no commit/reveal)
 - **Winner Resolution**: Uses `_determineWinner()` matching circuit logic
-- **ZK Proof Storage**: Receives proof bytes (verification pending)
+- **ZK Proof Verification**: Receives proof bytes via `resolveGame()` (verification pending if verifier is set)
 
 ### TODO
 
-- **On-chain verification not yet implemented**: Proofs are generated and verified client-side, but contract doesn't verify them yet
-- **To enable on-chain verification**: Generate verifier contract using Noir's verifier generation tools and integrate into `revealMove()`
+- **On-chain verification not yet implemented**: Proofs are generated and verified client-side, but contract doesn't verify them yet (unless verifier contract is deployed and set)
+- **To enable on-chain verification**: Generate verifier contract using Noir's verifier generation tools, deploy it, and call `setVerifier()` on the game contract
 
 ## License
 
