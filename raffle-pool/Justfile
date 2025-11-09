@@ -172,6 +172,11 @@ deploy-tokens RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba
             echo "  Token0: $TOKEN0"
             echo "  Token1: $TOKEN1"
             echo "Skipping token deployment."
+            # Copy to frontend
+            FRONTEND_DIR="../pool-ui"
+            if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+                cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+            fi
             exit 0
         fi
     fi
@@ -234,6 +239,11 @@ deploy-tokens RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba
         echo "✓ Token0 deployed at: $TOKEN0 (block: $BLOCK0)"
         echo "✓ Token1 deployed at: $TOKEN1 (block: $BLOCK1)"
         echo "✓ Addresses and ABIs saved to {{deployments-file}}"
+        # Copy to frontend
+        FRONTEND_DIR="../pool-ui"
+        if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+            cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+        fi
     else
         echo "⚠ Could not extract token addresses from broadcast files."
         echo "Please check broadcast/00_DeployTokens.s.sol/{{chain-id}}/run-latest.json"
@@ -287,6 +297,11 @@ deploy-hook RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a
         if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
             echo "✓ Hook already deployed at: $HOOK_ADDR"
             echo "Skipping hook deployment."
+            # Copy to frontend
+            FRONTEND_DIR="../pool-ui"
+            if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+                cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+            fi
             exit 0
         fi
     fi
@@ -339,6 +354,11 @@ deploy-hook RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a
         echo ""
         echo "✓ Hook deployed at: $HOOK_ADDR (block: $BLOCK)"
         echo "✓ Address and ABI saved to {{deployments-file}}"
+        # Copy to frontend
+        FRONTEND_DIR="../pool-ui"
+        if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+            cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+        fi
     else
         echo "⚠ Could not extract hook address from broadcast files."
         echo "Please check broadcast/00_DeployHook.s.sol/{{chain-id}}/run-latest.json"
@@ -390,6 +410,11 @@ deploy-v4 RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b
         echo "  PositionManager: $POS_MGR"
         echo "  Router: $ROUTER"
         echo "Skipping V4 deployment."
+        # Copy to frontend
+        FRONTEND_DIR="../pool-ui"
+        if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+            cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+        fi
         exit 0
     fi
     
@@ -487,6 +512,11 @@ deploy-v4 RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b
     echo "✓ Router: $ROUTER (block: $BLOCK)"
     echo "✓ Addresses saved to {{deployments-file}}"
     echo "  Note: V4 contract ABIs are in external libraries (uniswap-hooks, hookmate)"
+    # Copy to frontend
+    FRONTEND_DIR="../pool-ui"
+    if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+        cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+    fi
 
 # ============================================================================
 # Pool Management Commands
@@ -785,7 +815,7 @@ setup RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d23
     echo "Deployed addresses:"
     just show-addresses
     echo ""
-    echo "To copy addresses to frontend, run: just copy-to-frontend"
+    echo "✓ deployments.json has been automatically synced to pool-ui/"
 
 # ============================================================================
 # Utility Commands
