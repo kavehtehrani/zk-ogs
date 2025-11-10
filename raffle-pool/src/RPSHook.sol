@@ -12,6 +12,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {SenderRelayLibrary} from "./router/SenderRelayLibrary.sol";
+import {RockPaperScissors} from "./RockPaperScissors.sol";
 
 /// @title RPSHook
 /// @notice Uniswap V4 hook implementing Rock Paper Scissors game with commit-reveal scheme
@@ -24,12 +25,20 @@ contract RPSHook is BaseHook, IUnlockCallback {
 
     uint256 public constant RAFFLE_CONTRIBUTION_BIPS = 500; // 5%
     uint256 public constant BIPS_DENOMINATOR = 10000;
-    uint256 public constant REFUND_TIMEOUT = 60; // 1 minute
+    uint256 public refundTimeout = 1800; // 30 minutes (configurable)
     uint256 public constant REVEAL_TIMEOUT = 60; // 1 minute
+    uint256 public constant DEFAULT_RPS_TIMEOUT = 300; // 5 minutes default timeout for RockPaperScissors games
+    
+    // Owner for configuration changes
+    address public owner;
 
     uint8 public constant ROCK = 0;
     uint8 public constant PAPER = 1;
     uint8 public constant SCISSORS = 2;
+
+    // RockPaperScissors contract integration
+    RockPaperScissors public rockPaperScissors;
+    mapping(bytes32 => uint256) public commitmentToGameId; // Maps commitmentHash to RockPaperScissors gameId
 
     mapping(PoolId => mapping(Currency => uint256)) public rafflePoolLedger;
     mapping(address => mapping(PoolId => mapping(Currency => uint256))) public contributionsByAddress;
@@ -105,7 +114,56 @@ contract RPSHook is BaseHook, IUnlockCallback {
         uint256 prizeAmount
     );
 
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    event RefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
+
+    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
+        owner = msg.sender;
+    }
+
+    /// @notice Set the RockPaperScissors contract address
+    /// @param _rockPaperScissors The address of the RockPaperScissors contract
+    function setRockPaperScissors(address _rockPaperScissors) external {
+        require(_rockPaperScissors != address(0), "Invalid address");
+        require(address(rockPaperScissors) == address(0), "Already set");
+        rockPaperScissors = RockPaperScissors(_rockPaperScissors);
+    }
+
+    /// @notice Link a commitmentHash to an existing RockPaperScissors gameId
+    /// @dev This allows the frontend to create the game first, then link it to the hook's commitment
+    /// @param commitmentHash The commitment hash from the swap
+    /// @param gameId The gameId from RockPaperScissors contract
+    function linkGameId(bytes32 commitmentHash, uint256 gameId) external {
+        require(commitmentHash != bytes32(0), "Invalid commitment");
+        require(commitmentToGameId[commitmentHash] == 0, "Already linked");
+        require(address(rockPaperScissors) != address(0), "RPS not configured");
+        // Verify the game exists and has matching commitment
+        RockPaperScissors.Game memory game = rockPaperScissors.getGame(gameId);
+        require(game.player1Commitment == commitmentHash, "Commitment mismatch");
+        commitmentToGameId[commitmentHash] = gameId;
+    }
+
+    /// @notice Get the RockPaperScissors gameId for a given commitmentHash
+    /// @param commitmentHash The commitment hash from the swap
+    /// @return gameId The gameId in RockPaperScissors contract (0 if not linked)
+    function getGameId(bytes32 commitmentHash) external view returns (uint256) {
+        return commitmentToGameId[commitmentHash];
+    }
+
+    /// @notice Set the refund timeout (only owner)
+    /// @param _refundTimeout New refund timeout in seconds
+    function setRefundTimeout(uint256 _refundTimeout) external {
+        require(msg.sender == owner, "Only owner");
+        require(_refundTimeout > 0, "Timeout must be greater than 0");
+        uint256 oldTimeout = refundTimeout;
+        refundTimeout = _refundTimeout;
+        emit RefundTimeoutUpdated(oldTimeout, _refundTimeout);
+    }
+
+    /// @notice Get the current refund timeout (for compatibility with old constant)
+    /// @return The current refund timeout in seconds
+    function REFUND_TIMEOUT() external view returns (uint256) {
+        return refundTimeout;
+    }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
@@ -214,6 +272,17 @@ contract RPSHook is BaseHook, IUnlockCallback {
             activeGames.push(commitmentHash);
             activeGameIndex[commitmentHash] = activeGames.length; // 1-based index
             
+            // Automatically create game in RockPaperScissors contract if configured and not already linked
+            // This ensures the game is always created and linked, even if frontend's createGame call failed
+            if (address(rockPaperScissors) != address(0) && commitmentToGameId[commitmentHash] == 0) {
+                try rockPaperScissors.createGameForPlayer(commitmentHash, DEFAULT_RPS_TIMEOUT, player1) returns (uint256 gameId) {
+                    commitmentToGameId[commitmentHash] = gameId;
+                } catch {
+                    // If creation fails (e.g., game already exists with different player1), 
+                    // frontend can still link it later using linkGameId()
+                }
+            }
+            
             emit GameCreated(commitmentHash, player1, poolId, currency, contributionAmount, block.timestamp);
         }
 
@@ -252,7 +321,7 @@ contract RPSHook is BaseHook, IUnlockCallback {
         PendingSwap memory swap = pendingSwaps[commitmentHash];
         require(swap.player1 != address(0), "Swap not found");
         require(!swap.player2Moved, "Player 2 already moved");
-        require(block.timestamp >= swap.timestamp + REFUND_TIMEOUT, "Timeout not reached");
+        require(block.timestamp >= swap.timestamp + refundTimeout, "Timeout not reached");
         require(
             poolManager.balanceOf(address(this), swap.currency.toId()) >= swap.player1Contribution,
             "Insufficient claim balance"
@@ -285,6 +354,14 @@ contract RPSHook is BaseHook, IUnlockCallback {
         swap.player2Move = player2Move;
         swap.player2Contribution = player2ContributionAmount;
         swap.player2MoveTimestamp = block.timestamp;
+
+        // Join game in RockPaperScissors contract if configured and gameId exists
+        if (address(rockPaperScissors) != address(0)) {
+            uint256 gameId = commitmentToGameId[commitmentHash];
+            if (gameId != 0) {
+                rockPaperScissors.joinGame(gameId, player2Move);
+            }
+        }
 
         emit Player2Moved(commitmentHash, msg.sender, player2Move, player2ContributionAmount);
     }
@@ -465,10 +542,10 @@ contract RPSHook is BaseHook, IUnlockCallback {
             return (false, 0);
         }
         uint256 elapsed = block.timestamp - swap.timestamp;
-        if (elapsed >= REFUND_TIMEOUT) {
+        if (elapsed >= refundTimeout) {
             return (true, 0);
         }
-        return (false, REFUND_TIMEOUT - elapsed);
+        return (false, refundTimeout - elapsed);
     }
 
     function claimPrizeAfterRevealTimeout(bytes32 commitmentHash) external {

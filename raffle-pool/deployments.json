@@ -725,20 +725,20 @@
     "poolManager": {
       "address": "0x0d9baf34817fccd3b3068768e5d20542b66424a5",
       "abi": [],
-      "blockNumber": 4
+      "blockNumber": 3
     },
     "positionManager": {
       "address": "0x90aae8e3c8df1d226431d0c2c7feaaa775faf86c",
       "abi": [],
-      "blockNumber": 4
+      "blockNumber": 3
     },
     "router": {
       "address": "0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "abi": [],
-      "blockNumber": 4
+      "blockNumber": 3
     },
     "hook": {
-      "address": "0x2bab0c009013e9113992d8951be0ecb4a26a4ac4",
+      "address": "0x63cb45a7d0dd1bf1cbcf9f6085db14bc57f70ac4",
       "abi": [
         {
           "type": "constructor",
@@ -754,6 +754,19 @@
         {
           "type": "function",
           "name": "BIPS_DENOMINATOR",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "DEFAULT_RPS_TIMEOUT",
           "inputs": [],
           "outputs": [
             {
@@ -1706,6 +1719,25 @@
         },
         {
           "type": "function",
+          "name": "commitmentToGameId",
+          "inputs": [
+            {
+              "name": "",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
           "name": "contributionsByAddress",
           "inputs": [
             {
@@ -1796,6 +1828,25 @@
               "name": "currency",
               "type": "address",
               "internalType": "Currency"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "getGameId",
+          "inputs": [
+            {
+              "name": "commitmentHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
             }
           ],
           "outputs": [
@@ -2035,6 +2086,37 @@
         },
         {
           "type": "function",
+          "name": "linkGameId",
+          "inputs": [
+            {
+              "name": "commitmentHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "gameId",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "owner",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
           "name": "pendingSwaps",
           "inputs": [
             {
@@ -2208,6 +2290,58 @@
               "name": "commitmentHash",
               "type": "bytes32",
               "internalType": "bytes32"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "refundTimeout",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "rockPaperScissors",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "address",
+              "internalType": "contract RockPaperScissors"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "setRefundTimeout",
+          "inputs": [
+            {
+              "name": "_refundTimeout",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "setRockPaperScissors",
+          "inputs": [
+            {
+              "name": "_rockPaperScissors",
+              "type": "address",
+              "internalType": "address"
             }
           ],
           "outputs": [],
@@ -2445,6 +2579,25 @@
         },
         {
           "type": "event",
+          "name": "RefundTimeoutUpdated",
+          "inputs": [
+            {
+              "name": "oldTimeout",
+              "type": "uint256",
+              "indexed": false,
+              "internalType": "uint256"
+            },
+            {
+              "name": "newTimeout",
+              "type": "uint256",
+              "indexed": false,
+              "internalType": "uint256"
+            }
+          ],
+          "anonymous": false
+        },
+        {
+          "type": "event",
           "name": "SwapRefunded",
           "inputs": [
             {
@@ -2501,7 +2654,7 @@
           "inputs": []
         }
       ],
-      "blockNumber": 7
+      "blockNumber": 6
     },
     "senderRelayRouter": {
       "address": "0x610178da211fef7d417bc0e6fed39f05609ad788",
@@ -2692,7 +2845,7 @@
           "stateMutability": "payable"
         }
       ],
-      "blockNumber": 8
+      "blockNumber": 7
     },
     "verifier": {
       "address": "0xb7f8bc63bbcad18155201308c8f3540b07f84f5e",
@@ -2742,7 +2895,7 @@
           "inputs": []
         }
       ],
-      "blockNumber": 9
+      "blockNumber": 8
     },
     "rockPaperScissors": {
       "address": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
@@ -2751,6 +2904,19 @@
           "type": "constructor",
           "inputs": [],
           "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "authorizedHook",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "stateMutability": "view"
         },
         {
           "type": "function",
@@ -2765,6 +2931,35 @@
               "name": "timeout",
               "type": "uint256",
               "internalType": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "createGameForPlayer",
+          "inputs": [
+            {
+              "name": "commitment",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "timeout",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "player1",
+              "type": "address",
+              "internalType": "address"
             }
           ],
           "outputs": [
@@ -3008,6 +3203,19 @@
         },
         {
           "type": "function",
+          "name": "setAuthorizedHook",
+          "inputs": [
+            {
+              "name": "_hook",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
           "name": "setVerifier",
           "inputs": [
             {
@@ -3158,7 +3366,7 @@
           "anonymous": false
         }
       ],
-      "blockNumber": 10
+      "blockNumber": 9
     }
   }
 }

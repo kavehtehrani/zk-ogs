@@ -45,6 +45,7 @@ contract RockPaperScissors {
     // Optional ZK verifier integration
     IUltraVerifier public verifier;
     address public immutable deployer;
+    address public authorizedHook; // Hook contract that can create games on behalf of players
 
     // Events
     event GameCreated(
@@ -90,6 +91,17 @@ contract RockPaperScissors {
     }
 
     /**
+     * @dev Set the authorized hook address (one-time, by deployer only)
+     * @param _hook The address of the hook contract
+     */
+    function setAuthorizedHook(address _hook) external {
+        require(msg.sender == deployer, "Only deployer");
+        require(authorizedHook == address(0), "Hook already set");
+        require(_hook != address(0), "Invalid hook");
+        authorizedHook = _hook;
+    }
+
+    /**
      * @dev Create a new game with Player 1's commitment
      * @param commitment The hash of (move || salt) for Player 1
      * @param timeout Timeout in seconds for Player 1 to reveal after Player 2 joins
@@ -99,11 +111,43 @@ contract RockPaperScissors {
         bytes32 commitment,
         uint256 timeout
     ) external returns (uint256) {
+        return _createGameInternal(commitment, timeout, msg.sender);
+    }
+
+    /**
+     * @dev Create a new game with Player 1's commitment (called by authorized hook)
+     * @param commitment The hash of (move || salt) for Player 1
+     * @param timeout Timeout in seconds for Player 1 to reveal after Player 2 joins
+     * @param player1 The address of Player 1
+     * @return gameId The ID of the newly created game
+     */
+    function createGameForPlayer(
+        bytes32 commitment,
+        uint256 timeout,
+        address player1
+    ) external returns (uint256) {
+        require(msg.sender == authorizedHook, "Only authorized hook");
+        require(player1 != address(0), "Invalid player1");
+        return _createGameInternal(commitment, timeout, player1);
+    }
+
+    /**
+     * @dev Internal function to create a game
+     * @param commitment The hash of (move || salt) for Player 1
+     * @param timeout Timeout in seconds for Player 1 to reveal after Player 2 joins
+     * @param player1Address The address of Player 1
+     * @return gameId The ID of the newly created game
+     */
+    function _createGameInternal(
+        bytes32 commitment,
+        uint256 timeout,
+        address player1Address
+    ) internal returns (uint256) {
         uint256 gameId = gameCounter++;
 
         games[gameId] = Game({
             gameId: gameId,
-            player1: msg.sender,
+            player1: player1Address,
             player2: address(0),
             status: GameStatus.Committed,
             player1Commitment: commitment,
@@ -115,7 +159,7 @@ contract RockPaperScissors {
             revealDeadline: 0 // Will be set when P2 joins
         });
 
-        emit GameCreated(gameId, msg.sender, commitment, timeout);
+        emit GameCreated(gameId, player1Address, commitment, timeout);
         return gameId;
     }
 

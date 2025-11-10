@@ -639,6 +639,108 @@ deploy-rps RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6
         exit 1
     fi
 
+# Configure the Hook to use RockPaperScissors
+# Usage: just configure-hook [RPC_URL=http://localhost:8545] [PRIVATE_KEY=0x...]
+configure-hook RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" ACCOUNT='' SENDER='':
+    #!/usr/bin/env bash
+    set -e
+    
+    # Extract and clean parameters first
+    RPC_VAL="{{RPC_URL}}"
+    PK_VAL="{{PRIVATE_KEY}}"
+    ACCOUNT_VAL="{{ACCOUNT}}"
+    SENDER_VAL="{{SENDER}}"
+    
+    # Strip parameter name prefix if present
+    case "$RPC_VAL" in
+        RPC_URL=*)
+            RPC_VAL="${RPC_VAL#RPC_URL=}"
+            ;;
+    esac
+    case "$PK_VAL" in
+        PRIVATE_KEY=*)
+            PK_VAL="${PK_VAL#PRIVATE_KEY=}"
+            ;;
+    esac
+    case "$ACCOUNT_VAL" in
+        ACCOUNT=*)
+            ACCOUNT_VAL="${ACCOUNT_VAL#ACCOUNT=}"
+            ;;
+    esac
+    case "$SENDER_VAL" in
+        SENDER=*)
+            SENDER_VAL="${SENDER_VAL#SENDER=}"
+            ;;
+    esac
+    
+    # Remove quotes and trim
+    RPC_VAL=$(echo "$RPC_VAL" | sed -e 's/^["'\'']*//' -e 's/["'\'']*$//' | xargs)
+    PK_VAL=$(echo "$PK_VAL" | sed -e 's/^["'\'']*//' -e 's/["'\'']*$//' | xargs)
+    ACCOUNT_VAL=$(echo "$ACCOUNT_VAL" | sed -e 's/^["'\'']*//' -e 's/["'\'']*$//' | xargs)
+    SENDER_VAL=$(echo "$SENDER_VAL" | sed -e 's/^["'\'']*//' -e 's/["'\'']*$//' | xargs)
+    
+    # Get addresses from deployments.json
+    HOOK_ADDR=$(just _get-address hook)
+    RPS_ADDR=$(just _get-address rockPaperScissors)
+    
+    if [ -z "$HOOK_ADDR" ]; then
+        echo "❌ Error: Hook address not found in deployments.json"
+        echo "  Please deploy the hook first using: just deploy-hook"
+        exit 1
+    fi
+    
+    if [ -z "$RPS_ADDR" ]; then
+        echo "❌ Error: RockPaperScissors address not found in deployments.json"
+        echo "  Please deploy RockPaperScissors first using: just deploy-rps"
+        exit 1
+    fi
+    
+    # Check if already configured
+    CURRENT_RPS=$(cast call "$HOOK_ADDR" "rockPaperScissors()(address)" --rpc-url "$RPC_VAL" 2>/dev/null || echo "0x0000000000000000000000000000000000000000")
+    if [ "$CURRENT_RPS" != "0x0000000000000000000000000000000000000000" ]; then
+        if [ "$(echo "$CURRENT_RPS" | tr '[:upper:]' '[:lower:]')" = "$(echo "$RPS_ADDR" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "✓ Hook is already configured with RockPaperScissors at: $RPS_ADDR"
+            exit 0
+        else
+            echo "⚠ Warning: Hook is already configured with a different RockPaperScissors address: $CURRENT_RPS"
+            echo "  Cannot reconfigure (setRockPaperScissors can only be called once)"
+            exit 1
+        fi
+    fi
+    
+    # Set environment variables for the script
+    export HOOK_ADDRESS=$HOOK_ADDR
+    export ROCK_PAPER_SCISSORS_ADDRESS=$RPS_ADDR
+    
+    echo "Configuring hook at $HOOK_ADDR"
+    echo "  with RockPaperScissors at $RPS_ADDR"
+    
+    # Build command array
+    CMD_ARGS=("script/ConfigureHook.s.sol" "--rpc-url" "$RPC_VAL")
+    
+    # Only add --private-key if provided and not empty
+    if [ -n "$PK_VAL" ] && [ "$PK_VAL" != "" ]; then
+        CMD_ARGS+=("--private-key" "$PK_VAL")
+    fi
+    
+    # Only add --account if provided, not empty, and not "default"
+    if [ -n "$ACCOUNT_VAL" ] && [ "$ACCOUNT_VAL" != "" ] && [ "$ACCOUNT_VAL" != "default" ]; then
+        CMD_ARGS+=("--account" "$ACCOUNT_VAL")
+    fi
+    
+    # Only add --sender if provided and not empty
+    if [ -n "$SENDER_VAL" ] && [ "$SENDER_VAL" != "" ] && [ "$SENDER_VAL" != "''" ]; then
+        CMD_ARGS+=("--sender" "$SENDER_VAL")
+    fi
+    
+    CMD_ARGS+=(--broadcast)
+    
+    # Run configuration
+    forge script "${CMD_ARGS[@]}"
+    
+    echo ""
+    echo "✓ Hook configured successfully!"
+
 # Deploy the Verifier contract
 # Usage: just deploy-verifier [RPC_URL=http://localhost:8545] [PRIVATE_KEY=0x...]
 deploy-verifier RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" ACCOUNT='' SENDER='':
@@ -1226,7 +1328,11 @@ setup RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d23
     just deploy-rps RPC_URL="$RPC_VAL" PRIVATE_KEY="$PK_VAL" ACCOUNT="$ACCOUNT_VAL" SENDER="$SENDER_VAL"
     
     echo ""
-    echo "=== Step 7: Creating Pool and Adding Liquidity ==="
+    echo "=== Step 7: Configuring Hook with RockPaperScissors ==="
+    just configure-hook RPC_URL="$RPC_VAL" PRIVATE_KEY="$PK_VAL" ACCOUNT="$ACCOUNT_VAL" SENDER="$SENDER_VAL"
+    
+    echo ""
+    echo "=== Step 8: Creating Pool and Adding Liquidity ==="
     just create-pool RPC_URL="$RPC_VAL" PRIVATE_KEY="$PK_VAL" ACCOUNT="$ACCOUNT_VAL" SENDER="$SENDER_VAL"
     
     echo ""

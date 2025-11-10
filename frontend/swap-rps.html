@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔄 Swap RPS - Rock Paper Scissors with Swaps</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="py-8 px-4">
+  <div class="max-w-[54rem] mx-auto space-y-6">
+    <!-- Header -->
+    <div class="glass-card rounded-3xl p-8 text-center bounce-in">
+      <h1 class="game-font text-5xl md:text-6xl font-black mb-4 gradient-text">
+        🔄 Swap RPS
+      </h1>
+      <p class="text-gray-600 text-lg">Play Rock Paper Scissors with token swaps - 95% swapped, 5% for the winner!</p>
+    </div>
+
+    <!-- Connect Wallet -->
+    <div class="glass-card rounded-3xl p-6 slide-up">
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-3xl">🔗</span> Connect Wallet
+        </div>
+        <span id="step1Checkmark" class="text-2xl hidden">✅</span>
+      </h2>
+      <div class="space-y-4">
+        <div class="flex flex-wrap gap-3 items-end">
+          <button id="connectBtn" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-purple-700 hover:to-indigo-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl">
+            🔗 Connect Wallet
+          </button>
+          <div id="walletInfo" class="flex-1 min-w-[200px]"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Role Selection Tabs -->
+    <div class="glass-card rounded-3xl p-6 slide-up">
+      <div class="flex gap-4 mb-6">
+        <button id="makerTabBtn" class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transform hover:scale-105 transition-all duration-200 shadow-lg">
+          🎯 Maker (Create Games)
+        </button>
+        <button id="takerTabBtn" class="flex-1 px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-300 transform hover:scale-105 transition-all duration-200">
+          🎮 Taker (Join Games)
+        </button>
+      </div>
+    </div>
+
+    <!-- MAKER VIEW -->
+    <div id="makerView" class="space-y-6">
+      <!-- Maker: Create New Game -->
+      <div class="glass-card rounded-3xl p-6 slide-up">
+        <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+          <span class="text-3xl">✨</span> Create New Game
+        </h2>
+        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-3 mb-4">
+          <p class="text-sm text-blue-800">
+            <strong>Maker:</strong> Create a game by making a swap with your committed move. 95% will be swapped, 5% (less fees) will be held for the RPS prize pool.
+          </p>
+        </div>
+
+        <!-- Move Selection -->
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Select Your Move</label>
+          <div class="flex flex-wrap justify-start gap-3">
+            <button id="makerRockBtn" class="move-btn rock-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+              <span class="text-xl">🪨</span>
+              <span>Rock</span>
+            </button>
+            <button id="makerPaperBtn" class="move-btn paper-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+              <span class="text-xl">📄</span>
+              <span>Paper</span>
+            </button>
+            <button id="makerScissorsBtn" class="move-btn scissors-btn px-4 py-2 text-white font-semibold text-sm rounded-lg shadow-lg min-w-[100px] flex items-center justify-center gap-2">
+              <span class="text-xl">✂️</span>
+              <span>Scissors</span>
+            </button>
+          </div>
+          <div id="makerMoveStatus" class="text-center mt-2"></div>
+        </div>
+
+        <!-- Swap Configuration -->
+        <div class="space-y-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Swap Direction</label>
+              <select id="makerSwapDirection" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="token0ToToken1">Token0 → Token1</option>
+                <option value="token1ToToken0">Token1 → Token0</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Swap Amount</label>
+              <input 
+                type="number" 
+                id="makerSwapAmount" 
+                placeholder="0.0" 
+                min="0"
+                step="0.000001"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Timeout (minutes)</label>
+              <input 
+                type="number" 
+                id="makerTimeout" 
+                placeholder="5" 
+                min="1"
+                value="5"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+            </div>
+          </div>
+          <div id="makerTokenBalance" class="text-sm text-gray-600"></div>
+          <div id="makerApprovalStatus" class="text-sm"></div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="makerApproveTokenBtn" class="px-6 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 text-white font-semibold rounded-xl hover:from-yellow-700 hover:to-orange-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl">
+            🔓 Approve Token
+          </button>
+          <button id="makerCreateGameBtn" class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+            ✨ Create Game & Swap
+          </button>
+        </div>
+      </div>
+
+      <!-- Maker: My Games -->
+      <div class="glass-card rounded-3xl p-6 slide-up">
+        <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-3xl">🎯</span> My Games
+          </div>
+          <button id="makerRefreshBtn" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-indigo-600 transform hover:scale-105 transition-all duration-200 shadow-md hover:shadow-lg text-sm">
+            🔄 Refresh
+          </button>
+        </h2>
+        <div id="makerGamesList" class="space-y-3">
+          <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+            <p class="text-sm text-gray-600 text-center">No games created yet. Create your first game above!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAKER VIEW -->
+    <div id="takerView" class="space-y-6 hidden">
+      <!-- Taker: Available Games to Join -->
+      <div class="glass-card rounded-3xl p-6 slide-up">
+        <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2 justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-3xl">🎯</span> Available Games to Join
+          </div>
+          <button id="takerRefreshBtn" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-semibold rounded-lg hover:from-blue-600 hover:to-indigo-600 transform hover:scale-105 transition-all duration-200 shadow-md hover:shadow-lg text-sm">
+            🔄 Refresh
+          </button>
+        </h2>
+        <div class="bg-purple-50 border-2 border-purple-200 rounded-xl p-3 mb-4">
+          <p class="text-sm text-purple-800">
+            <strong>Taker:</strong> Pick an active game and make an opposite swap with matching amount. 95% will be swapped, 5% (less fees) will be added to the prize pool.
+          </p>
+        </div>
+        <div id="takerAvailableGamesList" class="space-y-3">
+          <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+            <p class="text-sm text-gray-600 text-center">Click "Refresh" to see available games</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Taker: Games Awaiting Reveal -->
+      <div class="glass-card rounded-3xl p-6 slide-up">
+        <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+          <span class="text-3xl">⏳</span> Games Awaiting Maker's Reveal
+        </h2>
+        <div id="takerAwaitingRevealList" class="space-y-3">
+          <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+            <p class="text-sm text-gray-600 text-center">No games awaiting reveal</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Taker: Completed Games -->
+      <div class="glass-card rounded-3xl p-6 slide-up">
+        <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+          <span class="text-3xl">🏆</span> Completed Games
+        </h2>
+        <div id="takerCompletedGamesList" class="space-y-3">
+          <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+            <p class="text-sm text-gray-600 text-center">No completed games yet</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="glass-card rounded-3xl p-6 slide-up">
+      <h2 class="game-font text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+        <span class="text-3xl">📜</span> Activity Log
+      </h2>
+      <div id="logs" class="bg-gray-50 rounded-xl p-3 max-h-96 overflow-y-auto border-2 border-gray-200">
+        <!-- Log entries will be added here -->
+      </div>
+    </div>
+
+    <!-- Contract Address Display -->
+    <div class="glass-card rounded-3xl p-4 slide-up">
+      <div id="contractAddressDisplay" class="text-center text-sm text-gray-600">
+        <!-- Contract address will be displayed here -->
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/swap-rps.js"></script>
+</body>
+</html>
