@@ -27,6 +27,10 @@ let contract = null;
 let CONTRACT_ABI = null;
 let CONTRACT_ADDRESS = null;
 
+// Network configuration from deployments.json
+let DEPLOYED_CHAIN_ID = null;
+let DEPLOYED_RPC_URL = null;
+
 // Load contract artifact
 async function loadContractArtifact() {
   try {
@@ -160,20 +164,197 @@ function updateStepCheckmarks() {
   }
 }
 
+// Get network name from chain ID
+function getNetworkName(chainId) {
+  if (!chainId) return "Unknown";
+  
+  const chainIdNum = typeof chainId === "string" 
+    ? (chainId.startsWith("0x") ? parseInt(chainId, 16) : parseInt(chainId))
+    : Number(chainId);
+  
+  const networkMap = {
+    1: "Mainnet",
+    11155111: "Sepolia",
+    31337: "Localhost",
+    1337: "Localhost",
+    5: "Goerli",
+    80001: "Mumbai",
+    137: "Polygon",
+    42161: "Arbitrum",
+    10: "Optimism",
+  };
+  
+  return networkMap[chainIdNum] || `Chain ${chainIdNum}`;
+}
+
+// Get block explorer URL for a chain ID
+function getBlockExplorerUrl(chainId) {
+  if (!chainId) return [];
+  
+  const chainIdNum = typeof chainId === "string" 
+    ? (chainId.startsWith("0x") ? parseInt(chainId, 16) : parseInt(chainId))
+    : Number(chainId);
+  
+  const explorerMap = {
+    1: ["https://etherscan.io"],
+    11155111: ["https://sepolia.etherscan.io"],
+    5: ["https://goerli.etherscan.io"],
+    80001: ["https://mumbai.polygonscan.com"],
+    137: ["https://polygonscan.com"],
+    42161: ["https://arbiscan.io"],
+    10: ["https://optimistic.etherscan.io"],
+  };
+  
+  return explorerMap[chainIdNum] || [];
+}
+
+// Normalize chain ID to string for comparison
+function normalizeChainId(chainId) {
+  if (!chainId) return null;
+  if (typeof chainId === "string") {
+    // Handle hex strings
+    if (chainId.startsWith("0x")) {
+      return parseInt(chainId, 16).toString();
+    }
+    return chainId;
+  }
+  // Handle BigInt, number, etc.
+  return chainId.toString();
+}
+
+// Ensure we're on the correct network before sending transactions
+async function ensureCorrectNetwork() {
+  if (!window.ethereum) {
+    log("❌ MetaMask not available");
+    return false;
+  }
+
+  if (!DEPLOYED_CHAIN_ID) {
+    log("⚠️ No chain ID configured in deployments.json");
+    return true; // No network requirement
+  }
+
+  try {
+    // Always use window.ethereum directly for network checks to get the most current state
+    const currentChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+    const currentChainId = normalizeChainId(currentChainIdHex);
+    const targetChainId = normalizeChainId(DEPLOYED_CHAIN_ID);
+
+    log(`🔍 Network check: Current=${currentChainId}, Target=${targetChainId}`);
+
+    // If already on correct network, return
+    if (currentChainId === targetChainId) {
+      log(`✅ Already on correct network (Chain ID: ${targetChainId})`);
+      return true;
+    }
+
+    // Need to switch networks
+    const networkName = getNetworkName(targetChainId);
+    log(`🔄 Switching from Chain ${currentChainId} to ${networkName} (Chain ID: ${targetChainId})...`);
+
+    const targetChainIdHex = `0x${BigInt(targetChainId).toString(16)}`;
+    log(`🔧 Requesting switch to chain ID: ${targetChainIdHex}`);
+
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: targetChainIdHex }],
+      });
+      log(`✅ Switched to ${networkName}`);
+      
+      // Wait a moment for the switch to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Update provider after network switch
+      provider = new ethers.BrowserProvider(window.ethereum);
+      if (signer) {
+        signer = await provider.getSigner();
+        if (CONTRACT_ADDRESS && CONTRACT_ABI) {
+          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        }
+      }
+      
+      return true;
+    } catch (switchError) {
+      log(`⚠️ Switch error code: ${switchError.code}, message: ${switchError.message}`);
+      
+      // Chain doesn't exist, try to add it if we have RPC URL
+      if (switchError.code === 4902 && DEPLOYED_RPC_URL) {
+        log(`➕ Chain not found in MetaMask. Adding ${networkName} network...`);
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: targetChainIdHex,
+                chainName: networkName,
+                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                rpcUrls: [DEPLOYED_RPC_URL],
+                blockExplorerUrls: getBlockExplorerUrl(targetChainId),
+              },
+            ],
+          });
+          log(`✅ Added ${networkName} network to MetaMask`);
+          
+          // Wait a moment for the addition to complete
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Update provider after adding network
+          provider = new ethers.BrowserProvider(window.ethereum);
+          if (signer) {
+            signer = await provider.getSigner();
+            if (CONTRACT_ADDRESS && CONTRACT_ABI) {
+              contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            }
+          }
+          
+          return true;
+        } catch (addError) {
+          log(`❌ Could not add network: ${addError.message}`);
+          log(`💡 Please manually add the network in MetaMask`);
+          log(`💡 Chain ID: ${targetChainId} (${targetChainIdHex}), RPC: ${DEPLOYED_RPC_URL}`);
+          return false;
+        }
+      } else {
+        log(`❌ Could not switch network: ${switchError.message}`);
+        log(`💡 Please manually switch to ${networkName} (Chain ID: ${targetChainId}) in MetaMask`);
+        return false;
+      }
+    }
+  } catch (error) {
+    log(`❌ Error checking network: ${error.message}`);
+    console.error("Network check error:", error);
+    return false;
+  }
+}
+
 // Update contract address display at bottom of page
-function updateContractAddressDisplay() {
+async function updateContractAddressDisplay() {
   const displayDiv = document.getElementById("contractAddressDisplay");
   if (!displayDiv) return;
 
   if (CONTRACT_ADDRESS) {
-    const isLocalhost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
-    const network = isLocalhost ? "localhost" : "Sepolia";
+    let networkName = "Unknown";
+    
+    // Try to get network from MetaMask first
+    if (provider) {
+      try {
+        const network = await provider.getNetwork();
+        networkName = getNetworkName(network.chainId.toString());
+      } catch (error) {
+        // Fall back to deployments.json chainId
+        if (DEPLOYED_CHAIN_ID) {
+          networkName = getNetworkName(DEPLOYED_CHAIN_ID);
+        }
+      }
+    } else if (DEPLOYED_CHAIN_ID) {
+      // Use chainId from deployments.json if MetaMask not connected
+      networkName = getNetworkName(DEPLOYED_CHAIN_ID);
+    }
 
     displayDiv.innerHTML = `
       <p class="text-gray-600 text-xs flex flex-wrap items-center gap-2">
-        <span class="font-semibold">Contract Address (${network}):</span>
+        <span class="font-semibold">Contract Address (${networkName}):</span>
         <span class="font-mono text-purple-600 break-all">${CONTRACT_ADDRESS}</span>
       </p>
     `;
@@ -188,39 +369,23 @@ function updateContractAddressDisplay() {
 async function connectWallet() {
   if (typeof window.ethereum === "undefined") {
     log("❌ MetaMask not found. Please install MetaMask.");
-    log(
-      "💡 Tip: Make sure MetaMask is installed and configured for Sepolia testnet (Chain ID: 11155111)"
-    );
+    if (DEPLOYED_CHAIN_ID) {
+      const networkName = getNetworkName(DEPLOYED_CHAIN_ID);
+      log(
+        `💡 Tip: Make sure MetaMask is installed and configured for ${networkName} (Chain ID: ${DEPLOYED_CHAIN_ID})`
+      );
+    } else {
+      log("💡 Tip: Make sure MetaMask is installed and configured for the correct network");
+    }
     return;
   }
 
   try {
-    // Request network switch to Sepolia if needed
-    // Sepolia testnet uses chain ID 11155111
-    try {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xAA36A7" }], // 11155111 in hex
-      });
-    } catch (switchError) {
-      // Chain doesn't exist, add it
-      if (switchError.code === 4902) {
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: "0xAA36A7", // 11155111 in hex (Sepolia)
-              chainName: "Sepolia",
-              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://sepolia.infura.io/v3/"],
-              blockExplorerUrls: ["https://sepolia.etherscan.io"],
-            },
-          ],
-        });
-      }
-    }
-
     provider = new ethers.BrowserProvider(window.ethereum);
+    
+    // Ensure we're on the correct network
+    await ensureCorrectNetwork();
+    
     await provider.send("eth_requestAccounts", []);
     signer = await provider.getSigner();
     const address = await signer.getAddress();
@@ -247,6 +412,9 @@ async function connectWallet() {
     } else {
       log("⚠️ Contract address will be loaded automatically");
     }
+
+    // Update contract address display with current network
+    await updateContractAddressDisplay();
 
     // Update step checkmarks
     updateStepCheckmarks();
@@ -290,12 +458,45 @@ async function createGame() {
     return;
   }
 
+  // Ensure we're on the correct network before sending transaction
+  const networkOk = await ensureCorrectNetwork();
+  if (!networkOk) {
+    log("❌ Please switch to the correct network and try again");
+    return;
+  }
+
   const btn = document.getElementById("createGameBtn");
   const originalText = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = "⏳ Creating...";
 
   try {
+    // First, verify contract exists and is accessible
+    log(`🔍 Verifying contract at address: ${CONTRACT_ADDRESS}`);
+    const code = await provider.getCode(CONTRACT_ADDRESS);
+    if (code === "0x" || code === "0x0") {
+      log(`❌ No contract code found at address ${CONTRACT_ADDRESS}`);
+      log(`💡 The contract is not deployed at this address.`);
+      log(`💡 Please deploy the contract and update deployments.json`);
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      return;
+    }
+    log(`✅ Contract code found (${(code.length - 2) / 2} bytes)`);
+    
+    // Try to verify the contract has the expected interface by calling a view function
+    try {
+      const gameCounter = await contract.gameCounter();
+      log(`✅ Contract verified - gameCounter: ${gameCounter.toString()}`);
+    } catch (verifyError) {
+      log(`⚠️ Could not verify contract interface: ${verifyError.message}`);
+      log(`💡 The contract may have a different ABI than expected`);
+    }
+    
+    // Verify the function selector
+    const createGameSelector = contract.interface.getFunction("createGame").selector;
+    log(`🔍 createGame function selector: ${createGameSelector}`);
+
     // Generate random salt
     const salt = ethers.randomBytes(32);
     const saltField = ethers.hexlify(salt);
@@ -344,8 +545,137 @@ async function createGame() {
     log(`📋 Sending timeout to contract: ${timeoutUint} seconds (as uint256)`);
 
     // Pass timeout as a number - ethers.js will handle the conversion to uint256
-    const tx = await contract.createGame(commitment, timeoutUint);
-    log(`Transaction sent: ${tx.hash}`);
+    log(`📤 Sending transaction to contract: ${CONTRACT_ADDRESS}`);
+    log(`📤 Function: createGame(commitment=${commitment.slice(0, 10)}..., timeout=${timeoutUint})`);
+    log(`📤 Commitment (full): ${commitment}`);
+    log(`📤 Timeout (number): ${timeoutUint}, type: ${typeof timeoutUint}`);
+    
+    // Verify we can encode the function call
+    try {
+      const encoded = contract.interface.encodeFunctionData("createGame", [commitment, timeoutUint]);
+      log(`✅ Function call encoded successfully (${encoded.length} bytes)`);
+      log(`🔍 Encoded data: ${encoded.slice(0, 10)}...`);
+    } catch (encodeError) {
+      log(`❌ Failed to encode function call: ${encodeError.message}`);
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      return;
+    }
+    
+    // Try to estimate gas first to catch errors early
+    let gasEstimate;
+    try {
+      log(`⛽ Estimating gas...`);
+      gasEstimate = await contract.createGame.estimateGas(commitment, timeoutUint);
+      log(`⛽ Gas estimate: ${gasEstimate.toString()}`);
+    } catch (estimateError) {
+      log(`❌ Gas estimation failed: ${estimateError.message}`);
+      log(`📋 Full error: ${JSON.stringify(estimateError, null, 2)}`);
+      if (estimateError.data) {
+        log(`📋 Error data: ${estimateError.data}`);
+        // Try to decode the error if possible
+        try {
+          const decoded = contract.interface.parseError(estimateError.data);
+          log(`📋 Decoded error: ${decoded.name} - ${JSON.stringify(decoded.args)}`);
+        } catch (e) {
+          log(`📋 Could not decode error: ${e.message}`);
+        }
+      }
+      if (estimateError.reason) {
+        log(`📋 Error reason: ${estimateError.reason}`);
+      }
+      if (estimateError.code) {
+        log(`📋 Error code: ${estimateError.code}`);
+      }
+      log(`💡 This usually means the transaction would revert.`);
+      log(`💡 Check Anvil logs for the actual revert reason.`);
+      log(`💡 The contract might have different requirements than expected.`);
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      return;
+    }
+    
+    let tx;
+    try {
+      // Try to get more detailed error information
+      const txRequest = await contract.createGame.populateTransaction(commitment, timeoutUint);
+      log(`📋 Transaction request: ${JSON.stringify({
+        to: txRequest.to,
+        data: txRequest.data?.slice(0, 20) + '...',
+        value: txRequest.value?.toString(),
+        gasLimit: txRequest.gasLimit?.toString()
+      })}`);
+      
+      tx = await contract.createGame(commitment, timeoutUint, {
+        gasLimit: gasEstimate * BigInt(2) // Add buffer
+      });
+      log(`Transaction sent: ${tx.hash}`);
+    } catch (error) {
+      log(`❌ Transaction failed: ${error.message}`);
+      
+      // Try to get more detailed error information
+      if (error.error) {
+        log(`📋 Error object: ${JSON.stringify(error.error, null, 2)}`);
+      }
+      if (error.data) {
+        log(`📋 Error data: ${error.data}`);
+        // Try to decode the error if possible
+        try {
+          const decoded = contract.interface.parseError(error.data);
+          log(`📋 Decoded error: ${decoded.name} - ${JSON.stringify(decoded.args)}`);
+        } catch (e) {
+          log(`📋 Could not decode error data: ${e.message}`);
+        }
+      }
+      if (error.reason) {
+        log(`📋 Error reason: ${error.reason}`);
+      }
+      if (error.code) {
+        log(`📋 Error code: ${error.code}`);
+      }
+      if (error.transaction) {
+        log(`📋 Failed transaction: ${JSON.stringify(error.transaction, null, 2)}`);
+      }
+      
+      // Try to simulate the transaction to get revert reason
+      try {
+        log(`🔍 Attempting to simulate transaction to get revert reason...`);
+        const txRequest = await contract.createGame.populateTransaction(commitment, timeoutUint);
+        const result = await provider.call({
+          to: txRequest.to,
+          data: txRequest.data,
+          from: await signer.getAddress()
+        });
+        log(`📋 Simulation result: ${result}`);
+      } catch (simError) {
+        log(`📋 Simulation error: ${simError.message}`);
+        if (simError.data) {
+          log(`📋 Simulation error data: ${simError.data}`);
+          // Try to decode revert reason
+          try {
+            const reason = contract.interface.parseError(simError.data);
+            log(`📋 Revert reason: ${reason.name} - ${JSON.stringify(reason.args)}`);
+          } catch (e) {
+            // Try to decode as a string revert
+            if (simError.data && simError.data.length > 10) {
+              try {
+                const reason = ethers.AbiCoder.defaultAbiCoder().decode(
+                  ["string"],
+                  "0x" + simError.data.slice(10)
+                );
+                log(`📋 Revert message: ${reason[0]}`);
+              } catch (e2) {
+                log(`📋 Could not decode revert reason`);
+              }
+            }
+          }
+        }
+      }
+      
+      log(`💡 The contract exists but the transaction reverted.`);
+      log(`💡 Check Anvil logs for more details.`);
+      throw error;
+    }
 
     const receipt = await tx.wait();
     log(`Transaction confirmed in block ${receipt.blockNumber}`);
@@ -414,6 +744,13 @@ async function joinGame() {
   // Check if move is already selected
   if (gameState.move === null || gameState.move === undefined) {
     log("❌ Please select your move first (Rock, Paper, or Scissors)");
+    return;
+  }
+
+  // Ensure we're on the correct network before sending transaction
+  const networkOk = await ensureCorrectNetwork();
+  if (!networkOk) {
+    log("❌ Please switch to the correct network and try again");
     return;
   }
 
@@ -1526,6 +1863,13 @@ async function checkDeadline() {
 async function forfeitGame() {
   if (!contract || !gameState.gameId) return;
 
+  // Ensure we're on the correct network before sending transaction
+  const networkOk = await ensureCorrectNetwork();
+  if (!networkOk) {
+    log("❌ Please switch to the correct network and try again");
+    return;
+  }
+
   try {
     log("Calling forfeitGame()...");
     const tx = await contract.forfeitGame(gameState.gameId);
@@ -1734,61 +2078,77 @@ document.getElementById("gameIdInput").addEventListener("input", () => {
   updateButtonStates();
 });
 
+// Listen for network changes in MetaMask
+if (typeof window.ethereum !== "undefined") {
+  window.ethereum.on("chainChanged", async (chainId) => {
+    log(`🔄 Network changed to Chain ID: ${parseInt(chainId, 16)}`);
+    // Update provider and signer if wallet is connected
+    if (provider) {
+      provider = new ethers.BrowserProvider(window.ethereum);
+      if (signer) {
+        signer = await provider.getSigner();
+        // Update contract if address is available
+        if (CONTRACT_ADDRESS && CONTRACT_ABI) {
+          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        }
+      }
+      // Update display with new network
+      await updateContractAddressDisplay();
+    }
+  });
+}
+
 // Initialize on load
 async function init() {
   try {
     await loadContractArtifact();
     await initNoir();
 
-    // Load contract address from addresses.json
-    // Detect environment: use localhost only if we're on localhost, otherwise use sepolia
+    // Load contract address from deployments.json
     try {
       log(
-        `🔍 Loading addresses.json from ${window.location.origin}/addresses.json`
+        `🔍 Loading deployments.json from ${window.location.origin}/deployments.json`
       );
-      const addressesResponse = await fetch("/addresses.json");
+      const deploymentsResponse = await fetch("/deployments.json");
       log(
-        `📡 Response status: ${addressesResponse.status} ${addressesResponse.statusText}`
+        `📡 Response status: ${deploymentsResponse.status} ${deploymentsResponse.statusText}`
       );
 
-      if (addressesResponse.ok) {
-        const addresses = await addressesResponse.json();
-        log(`📋 Loaded addresses.json:`, addresses);
-        const isLocalhost =
-          window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1";
-        log(
-          `🌐 Environment: ${isLocalhost ? "localhost" : "production/sepolia"}`
-        );
-
-        // Check localhost first only if we're actually on localhost
-        if (isLocalhost && addresses.localhost?.rockPaperScissors) {
-          CONTRACT_ADDRESS = addresses.localhost.rockPaperScissors;
-          log(`✅ Loaded localhost contract address: ${CONTRACT_ADDRESS}`);
-          updateContractAddressDisplay();
-        } else if (addresses.sepolia?.rockPaperScissors) {
-          CONTRACT_ADDRESS = addresses.sepolia.rockPaperScissors;
-          log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
-          updateContractAddressDisplay();
+      if (deploymentsResponse.ok) {
+        const deployments = await deploymentsResponse.json();
+        log(`📋 Loaded deployments.json`);
+        
+        // Store network configuration
+        if (deployments.chainId) {
+          DEPLOYED_CHAIN_ID = deployments.chainId.toString(); // Ensure it's a string
+          const networkName = getNetworkName(DEPLOYED_CHAIN_ID);
+          log(`🌐 Chain ID: ${DEPLOYED_CHAIN_ID} (${networkName})`);
+          log(`🔧 Normalized Chain ID: ${normalizeChainId(DEPLOYED_CHAIN_ID)}`);
+        }
+        if (deployments.rpcUrl) {
+          DEPLOYED_RPC_URL = deployments.rpcUrl;
+          log(`🌐 RPC URL: ${DEPLOYED_RPC_URL}`);
+        }
+        
+        // Extract RockPaperScissors contract address
+        if (deployments.contracts && deployments.contracts.rockPaperScissors) {
+          CONTRACT_ADDRESS = deployments.contracts.rockPaperScissors.address;
+          log(`✅ Loaded RockPaperScissors contract address: ${CONTRACT_ADDRESS}`);
+          await updateContractAddressDisplay();
         } else {
           log(
-            `⚠️ No contract address found in addresses.json for ${
-              isLocalhost ? "localhost" : "sepolia"
-            }`
+            `⚠️ rockPaperScissors contract not found in deployments.json`
           );
-          log(`📋 Available addresses:`, {
-            localhost: addresses.localhost?.rockPaperScissors || "empty",
-            sepolia: addresses.sepolia?.rockPaperScissors || "empty",
-          });
+          log(`📋 Available contracts:`, Object.keys(deployments.contracts || {}));
         }
       } else {
         log(
-          `⚠️ Failed to load addresses.json: ${addressesResponse.status} ${addressesResponse.statusText}`
+          `⚠️ Failed to load deployments.json: ${deploymentsResponse.status} ${deploymentsResponse.statusText}`
         );
       }
     } catch (error) {
-      log(`⚠️ Could not load addresses.json: ${error.message}`);
-      console.error("Addresses loading error:", error);
+      log(`⚠️ Could not load deployments.json: ${error.message}`);
+      console.error("Deployments loading error:", error);
     }
 
     log("🚀 Application ready!");
@@ -1796,12 +2156,12 @@ async function init() {
       log("💡 Connect your wallet and switch to the correct network");
     } else {
       log(
-        "💡 Contract address will be loaded automatically from addresses.json"
+        "💡 Contract address will be loaded automatically from deployments.json"
       );
     }
 
     // Update contract address display (even if not loaded yet)
-    updateContractAddressDisplay();
+    await updateContractAddressDisplay();
 
     // Initialize button states
     updateButtonStates();

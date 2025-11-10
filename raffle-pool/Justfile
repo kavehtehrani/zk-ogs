@@ -216,16 +216,46 @@ deploy-tokens RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba
     echo ""
     echo "Extracting token addresses from broadcast files..."
     BROADCAST_FILE="broadcast/00_DeployTokens.s.sol/{{chain-id}}/run-latest.json"
-    if [ -f "$BROADCAST_FILE" ]; then
-        # Get all MockERC20 contract addresses, get unique ones, and take first two
-        TOKEN0=$(jq -r '.transactions[] | select(.contractName == "MockERC20") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | sort -u | head -1)
-        TOKEN1=$(jq -r '.transactions[] | select(.contractName == "MockERC20") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | sort -u | sed -n '2p')
+    
+    if [ ! -f "$BROADCAST_FILE" ]; then
+        echo "⚠ Error: Broadcast file not found: $BROADCAST_FILE"
+        exit 1
     fi
     
-    if [ -n "$TOKEN0" ] && [ -n "$TOKEN1" ]; then
+    # Debug: Show all transactions
+    echo "  Debug: Transactions in token deployment broadcast file:"
+    jq -r '.transactions[] | "    [\(.transactionType // "unknown")] \(.contractName // "null") -> \(.contractAddress // "null")"' "$BROADCAST_FILE" 2>/dev/null || echo "    Could not parse transactions"
+    echo ""
+    
+    # Get all unique MockERC20 contract addresses from CREATE transactions
+    # The script deploys token0 first, then token1, so they should be in order
+    ALL_TOKEN_ADDRESSES=($(jq -r '.transactions[] | select(.contractName == "MockERC20" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | sort -u))
+    
+    if [ ${#ALL_TOKEN_ADDRESSES[@]} -lt 2 ]; then
+        echo "⚠ ERROR: Expected 2 token addresses, but found ${#ALL_TOKEN_ADDRESSES[@]}"
+        echo "  Found addresses: ${ALL_TOKEN_ADDRESSES[@]}"
+        echo "  Please check the broadcast file: $BROADCAST_FILE"
+        exit 1
+    fi
+    
+    TOKEN0="${ALL_TOKEN_ADDRESSES[0]}"
+    TOKEN1="${ALL_TOKEN_ADDRESSES[1]}"
+    
+    # Validate addresses are different
+    if [ "$TOKEN0" = "$TOKEN1" ]; then
+        echo "⚠ ERROR: Token0 and Token1 have the same address: $TOKEN0"
+        echo "  This should not happen. Please check the deployment script."
+        exit 1
+    fi
+    
+    echo "  Extracted Token0: $TOKEN0"
+    echo "  Extracted Token1: $TOKEN1"
+    
+    if [ -n "$TOKEN0" ] && [ -n "$TOKEN1" ] && [ "$TOKEN0" != "null" ] && [ "$TOKEN1" != "null" ]; then
         # Extract block numbers from broadcast file by matching transaction hash
-        HASH0=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN0"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
-        HASH1=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN1"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | sed -n '2p')
+        # Get the first transaction hash for each address
+        HASH0=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN0"'" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        HASH1=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN1"'" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
         
         BLOCK0=$(jq -r --arg hash "$HASH0" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
         BLOCK1=$(jq -r --arg hash "$HASH1" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
@@ -240,6 +270,7 @@ deploy-tokens RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba
         echo ""
         echo "✓ Token0 deployed at: $TOKEN0 (block: $BLOCK0)"
         echo "✓ Token1 deployed at: $TOKEN1 (block: $BLOCK1)"
+        echo "✓ Addresses verified (different addresses)"
         echo "✓ Addresses and ABIs saved to {{deployments-file}}"
         # Copy to frontend
         FRONTEND_DIR="../pool-ui"
@@ -409,18 +440,51 @@ deploy-rps RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6
     # Check if contract is already deployed
     RPS_ADDR=$(just _get-address rockPaperScissors)
     if [ -n "$RPS_ADDR" ]; then
-        # Check if contract has code at this address
-        CODE=$(cast code "$RPS_ADDR" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
-        if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
-            echo "✓ RockPaperScissors already deployed at: $RPS_ADDR"
-            echo "Skipping deployment."
-            # Copy to frontend
-            FRONTEND_DIR="../pool-ui"
-            if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
-                cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+        # Check if this address conflicts with token addresses (indicates wrong address was saved)
+        EXISTING_TOKEN0=$(just _get-address token0)
+        EXISTING_TOKEN1=$(just _get-address token1)
+        if [ "$RPS_ADDR" = "$EXISTING_TOKEN0" ] || [ "$RPS_ADDR" = "$EXISTING_TOKEN1" ]; then
+            echo "⚠ Warning: RockPaperScissors address in deployments.json ($RPS_ADDR) conflicts with a token address!"
+            echo "  This indicates a previous incorrect deployment. Forcing redeployment..."
+            # Remove the incorrect entry
+            jq 'del(.contracts.rockPaperScissors)' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+            RPS_ADDR=""
+        else
+            # Check if contract has code at this address
+            CODE=$(cast code "$RPS_ADDR" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
+            if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
+                # Verify it's actually a RockPaperScissors contract by checking for a unique function
+                # Try to call a function that only exists on RockPaperScissors (like gameCounter)
+                GAME_COUNTER=$(cast call "$RPS_ADDR" "gameCounter()(uint256)" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
+                if [ -n "$GAME_COUNTER" ]; then
+                    echo "✓ RockPaperScissors already deployed at: $RPS_ADDR"
+                    echo "Skipping deployment."
+                    # Copy to frontend
+                    FRONTEND_DIR="../pool-ui"
+                    if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+                        cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+                    fi
+                    exit 0
+                else
+                    echo "⚠ Warning: Address $RPS_ADDR has code but is not a RockPaperScissors contract!"
+                    echo "  Forcing redeployment..."
+                    # Remove the incorrect entry
+                    jq 'del(.contracts.rockPaperScissors)' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+                    RPS_ADDR=""
+                fi
             fi
-            exit 0
         fi
+    fi
+    
+    # Get verifier address from deployments.json to pass to the deployment script
+    VERIFIER_ADDR=$(just _get-address verifier)
+    if [ -n "$VERIFIER_ADDR" ]; then
+        export VERIFIER_ADDRESS=$VERIFIER_ADDR
+        echo "Using verifier address: $VERIFIER_ADDR"
+    else
+        echo "⚠ Warning: No verifier address found in deployments.json"
+        echo "  RockPaperScissors will be deployed without a verifier set"
+        echo "  You can set it later by calling setVerifier() on the contract"
     fi
     
     echo "Deploying RockPaperScissors..."
@@ -451,12 +515,97 @@ deploy-rps RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6
     # Extract address from broadcast JSON
     echo ""
     echo "Extracting RockPaperScissors address from broadcast files..."
-    RPS_ADDR=$(just _extract-from-broadcast DeployRockPaperScissors.s.sol RockPaperScissors)
+    BROADCAST_FILE="broadcast/DeployRockPaperScissors.s.sol/{{chain-id}}/run-latest.json"
     
-    if [ -n "$RPS_ADDR" ]; then
+    if [ ! -f "$BROADCAST_FILE" ]; then
+        echo "⚠ Error: Broadcast file not found: $BROADCAST_FILE"
+        exit 1
+    fi
+    
+    # Verify we're reading from the correct broadcast file
+    SCRIPT_NAME=$(jq -r '.transactions[0].transaction.contractName // .transactions[0].contractName // "unknown"' "$BROADCAST_FILE" 2>/dev/null || echo "unknown")
+    echo "  Reading from broadcast file: $BROADCAST_FILE"
+    
+    # Debug: Show all transactions in the broadcast file
+    echo "  Debug: Transactions in broadcast file:"
+    jq -r '.transactions[] | "    [\(.transactionType // "unknown")] \(.contractName // "null") -> \(.contractAddress // "null")"' "$BROADCAST_FILE" 2>/dev/null || echo "    Could not parse transactions"
+    echo ""
+    
+    # First, try to get the CREATE transaction with contractName "RockPaperScissors"
+    # This is the actual deployment transaction (not the setVerifier call)
+    RPS_ADDR=$(jq -r '.transactions[] | select(.contractName == "RockPaperScissors" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    
+    # Fallback 1: If contractName is set but transactionType filter didn't work, get first one
+    if [ -z "$RPS_ADDR" ] || [ "$RPS_ADDR" = "null" ]; then
+        RPS_ADDR=$(jq -r '.transactions[] | select(.contractName == "RockPaperScissors") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    fi
+    
+    # Fallback 2: If contractName is null or empty, try to find by transaction type only
+    # Get the FIRST CREATE transaction (the deployment happens before setVerifier call)
+    # IMPORTANT: Use head -1 to get the FIRST one, not the last one
+    if [ -z "$RPS_ADDR" ] || [ "$RPS_ADDR" = "null" ]; then
+        RPS_ADDR=$(jq -r '.transactions[] | select(.transactionType == "CREATE" or .transactionType == "CREATE2") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    fi
+    
+    echo "  Extracted address: $RPS_ADDR"
+    
+    # Verify the address is not already used by another contract
+    if [ -n "$RPS_ADDR" ] && [ "$RPS_ADDR" != "null" ]; then
+        # Check if this address is already recorded for a different contract
+        EXISTING_TOKEN0=$(just _get-address token0)
+        EXISTING_TOKEN1=$(just _get-address token1)
+        
+        if [ "$RPS_ADDR" = "$EXISTING_TOKEN0" ]; then
+            echo "⚠ ERROR: Extracted RockPaperScissors address $RPS_ADDR matches Token0 address!"
+            echo "  Token0: $EXISTING_TOKEN0"
+            echo "  This indicates the address extraction is incorrect."
+            echo ""
+            echo "  Debugging info:"
+            echo "  All transactions in RockPaperScissors broadcast file:"
+            jq -r '.transactions[] | "    [\(.transactionType // "unknown")] \(.contractName // "null") -> \(.contractAddress // "null")"' "$BROADCAST_FILE" 2>/dev/null || echo "    Could not parse transactions"
+            echo ""
+            echo "  Please verify the broadcast file manually: $BROADCAST_FILE"
+            echo "  The RockPaperScissors contract address should be in a CREATE transaction."
+            exit 1
+        fi
+        
+        if [ "$RPS_ADDR" = "$EXISTING_TOKEN1" ]; then
+            echo "⚠ ERROR: Extracted RockPaperScissors address $RPS_ADDR matches Token1 address!"
+            echo "  Token1: $EXISTING_TOKEN1"
+            echo "  This indicates the address extraction is INCORRECT - you're getting Token1's address instead of RockPaperScissors!"
+            echo ""
+            echo "  Debugging info:"
+            echo "  All transactions in RockPaperScissors broadcast file:"
+            jq -r '.transactions[] | "    [\(.transactionType // "unknown")] \(.contractName // "null") -> \(.contractAddress // "null")"' "$BROADCAST_FILE" 2>/dev/null || echo "    Could not parse transactions"
+            echo ""
+            echo "  Possible causes:"
+            echo "  1. The broadcast file path is wrong"
+            echo "  2. The extraction logic is picking the wrong transaction"
+            echo "  3. The contractName in the broadcast file is wrong"
+            echo ""
+            echo "  Please verify the broadcast file manually: $BROADCAST_FILE"
+            echo "  Expected: A CREATE transaction with contractName='RockPaperScissors'"
+            exit 1
+        fi
+    fi
+    
+    if [ -n "$RPS_ADDR" ] && [ "$RPS_ADDR" != "null" ]; then
+        # Verify the address has contract code (basic sanity check)
+        CODE=$(cast code "$RPS_ADDR" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
+        if [ -z "$CODE" ] || [ "$CODE" = "0x" ]; then
+            echo "⚠ ERROR: Extracted address $RPS_ADDR has no contract code!"
+            echo "  This suggests the address extraction is incorrect."
+            echo "  Please verify the broadcast file manually: $BROADCAST_FILE"
+            exit 1
+        fi
+        
         # Extract block number from broadcast file
-        BROADCAST_FILE="broadcast/DeployRockPaperScissors.s.sol/{{chain-id}}/run-latest.json"
-        HASH=$(jq -r '.transactions[] | select(.contractName == "RockPaperScissors" and .contractAddress == "'"$RPS_ADDR"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        # Match the hash from the CREATE transaction (not the setVerifier call)
+        HASH=$(jq -r '.transactions[] | select(.contractAddress == "'"$RPS_ADDR"'" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        # Fallback: if that doesn't work, just get the first hash for this address
+        if [ -z "$HASH" ] || [ "$HASH" = "null" ]; then
+            HASH=$(jq -r '.transactions[] | select(.contractAddress == "'"$RPS_ADDR"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        fi
         BLOCK=$(jq -r --arg hash "$HASH" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
         BLOCK=$(printf "%d" "$BLOCK" 2>/dev/null || echo "0")
         
@@ -464,6 +613,7 @@ deploy-rps RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6
         just _set-contract-metadata rockPaperScissors "$RPS_ADDR" "out/RockPaperScissors.sol/RockPaperScissors.json" "$BLOCK"
         echo ""
         echo "✓ RockPaperScissors deployed at: $RPS_ADDR (block: $BLOCK)"
+        echo "✓ Address verified (has contract code)"
         echo "✓ Address and ABI saved to {{deployments-file}}"
         # Copy to frontend
         FRONTEND_DIR="../pool-ui"
@@ -471,8 +621,22 @@ deploy-rps RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6
             cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
         fi
     else
-        echo "⚠ Could not extract RockPaperScissors address from broadcast files."
-        echo "Please check broadcast/DeployRockPaperScissors.s.sol/{{chain-id}}/run-latest.json"
+        echo "⚠ ERROR: Could not extract RockPaperScissors address from broadcast files!"
+        echo ""
+        echo "  Broadcast file: $BROADCAST_FILE"
+        echo "  File exists: $([ -f "$BROADCAST_FILE" ] && echo "yes" || echo "no")"
+        echo ""
+        echo "  All transactions in broadcast file:"
+        jq -r '.transactions[] | "    [\(.transactionType // "unknown")] \(.contractName // "null") -> \(.contractAddress // "null")"' "$BROADCAST_FILE" 2>/dev/null || echo "    Could not parse transactions"
+        echo ""
+        echo "  Attempted extraction methods:"
+        echo "  1. CREATE transaction with contractName='RockPaperScissors': $(jq -r '.transactions[] | select(.contractName == "RockPaperScissors" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "none found")"
+        echo "  2. Any transaction with contractName='RockPaperScissors': $(jq -r '.transactions[] | select(.contractName == "RockPaperScissors") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "none found")"
+        echo "  3. First CREATE transaction: $(jq -r '.transactions[] | select(.transactionType == "CREATE" or .transactionType == "CREATE2") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "none found")"
+        echo ""
+        echo "  Please check the broadcast file manually and extract the correct address."
+        echo "  The RockPaperScissors contract should be deployed in a CREATE transaction."
+        exit 1
     fi
 
 # Deploy the Verifier contract
@@ -518,17 +682,41 @@ deploy-verifier RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36
     # Check if contract is already deployed
     VERIFIER_ADDR=$(just _get-address verifier)
     if [ -n "$VERIFIER_ADDR" ]; then
-        # Check if contract has code at this address
-        CODE=$(cast code "$VERIFIER_ADDR" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
-        if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
-            echo "✓ Verifier already deployed at: $VERIFIER_ADDR"
-            echo "Skipping deployment."
-            # Copy to frontend
-            FRONTEND_DIR="../pool-ui"
-            if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
-                cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+        # Check if this address conflicts with token addresses (indicates wrong address was saved)
+        EXISTING_TOKEN0=$(just _get-address token0)
+        EXISTING_TOKEN1=$(just _get-address token1)
+        if [ "$VERIFIER_ADDR" = "$EXISTING_TOKEN0" ] || [ "$VERIFIER_ADDR" = "$EXISTING_TOKEN1" ]; then
+            echo "⚠ Warning: Verifier address in deployments.json ($VERIFIER_ADDR) conflicts with a token address!"
+            echo "  This indicates a previous incorrect deployment. Forcing redeployment..."
+            # Remove the incorrect entry
+            jq 'del(.contracts.verifier)' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+            VERIFIER_ADDR=""
+        else
+            # Check if contract has code at this address
+            CODE=$(cast code "$VERIFIER_ADDR" --rpc-url "$RPC_VAL" 2>/dev/null || echo "")
+            if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
+                # Verify it's actually a Verifier contract by trying to call a unique function
+                # Try to call verify function (it will fail with wrong params, but that's ok - we just check it exists)
+                # Actually simpler: check if it has the verify function by checking the ABI in deployments.json
+                # Or even simpler: just check if it's NOT a token by trying to call a token function
+                HAS_BALANCE=$(cast call "$VERIFIER_ADDR" "balanceOf(address)(uint256)" "0x0000000000000000000000000000000000000000" --rpc-url "$RPC_VAL" 2>/dev/null || echo "ERROR")
+                if [ "$HAS_BALANCE" != "ERROR" ]; then
+                    echo "⚠ Warning: Address $VERIFIER_ADDR appears to be a token contract (has balanceOf), not a Verifier!"
+                    echo "  Forcing redeployment..."
+                    # Remove the incorrect entry
+                    jq 'del(.contracts.verifier)' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+                    VERIFIER_ADDR=""
+                else
+                    echo "✓ Verifier already deployed at: $VERIFIER_ADDR"
+                    echo "Skipping deployment."
+                    # Copy to frontend
+                    FRONTEND_DIR="../pool-ui"
+                    if [ -d "$FRONTEND_DIR" ] && [ -f {{deployments-file}} ]; then
+                        cp {{deployments-file}} "$FRONTEND_DIR/" && echo "✓ Copied {{deployments-file}} to $FRONTEND_DIR/"
+                    fi
+                    exit 0
+                fi
             fi
-            exit 0
         fi
     fi
     
