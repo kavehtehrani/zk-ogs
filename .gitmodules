@@ -1,0 +1,6 @@
+[submodule "degen-rps/lib/solmate"]
+	path = degen-rps/lib/solmate
+	url = https://github.com/transmissions11/solmate
+[submodule "degen-rps/lib/openzeppelin-contracts"]
+	path = degen-rps/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
