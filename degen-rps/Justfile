@@ -247,6 +247,371 @@ deploy:
     echo "   Address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     echo "   Private Key: {{default-private-key}}"
 
+# Deploy contracts to Sepolia testnet (without verifier)
+# Requires: PRIVATE_KEY and INFURA_ETHEREUM_SEPOLIA_RPC environment variables
+# VERIFIER_ADDRESS defaults to the deployed Sepolia verifier, but can be overridden
+# Usage: PRIVATE_KEY=0x... INFURA_ETHEREUM_SEPOLIA_RPC=https://... just sepolia
+sepolia:
+    #!/usr/bin/env bash
+    set -e
+    
+    # Sepolia configuration
+    SEPOLIA_CHAIN_ID="11155111"
+    DEFAULT_VERIFIER_ADDRESS="0x3743ACA8228D72448964F984D0b859b090a9f138"
+    
+    # Check if PRIVATE_KEY is set
+    if [ -z "$PRIVATE_KEY" ]; then
+        echo "❌ Error: PRIVATE_KEY environment variable is required"
+        echo ""
+        echo "   Usage: PRIVATE_KEY=0x... INFURA_ETHEREUM_SEPOLIA_RPC=https://... just sepolia"
+        echo ""
+        exit 1
+    fi
+    
+    # Check if INFURA_ETHEREUM_SEPOLIA_RPC is set
+    if [ -z "$INFURA_ETHEREUM_SEPOLIA_RPC" ]; then
+        echo "❌ Error: INFURA_ETHEREUM_SEPOLIA_RPC environment variable is required"
+        echo ""
+        echo "   Usage: PRIVATE_KEY=0x... INFURA_ETHEREUM_SEPOLIA_RPC=https://... just sepolia"
+        echo ""
+        exit 1
+    fi
+    
+    # Use provided VERIFIER_ADDRESS or default to Sepolia verifier
+    VERIFIER_ADDRESS="${VERIFIER_ADDRESS:-$DEFAULT_VERIFIER_ADDRESS}"
+    
+    SEPOLIA_RPC_URL="$INFURA_ETHEREUM_SEPOLIA_RPC"
+    
+    just build
+    
+    echo "🚀 Deploying contracts to Sepolia testnet (without verifier)..."
+    echo "   Chain ID: $SEPOLIA_CHAIN_ID"
+    echo "   RPC URL: $SEPOLIA_RPC_URL"
+    echo "   Using existing Verifier: $VERIFIER_ADDRESS"
+    echo ""
+    
+    # Deploy contracts (using existing verifier)
+    export VERIFIER_ADDRESS
+    forge script script/DeploySepolia.s.sol:DeploySepoliaScript \
+        --rpc-url "$SEPOLIA_RPC_URL" \
+        --broadcast \
+        --private-key "$PRIVATE_KEY"
+    
+    echo ""
+    echo "📋 Extracting contract addresses from broadcast files..."
+    
+    # Extract addresses from broadcast JSON
+    BROADCAST_FILE="broadcast/DeploySepolia.s.sol/$SEPOLIA_CHAIN_ID/run-latest.json"
+    
+    if [ ! -f "$BROADCAST_FILE" ]; then
+        echo "❌ Error: Broadcast file not found: $BROADCAST_FILE"
+        exit 1
+    fi
+    
+    # Extract addresses - get all CREATE transactions first
+    # Note: Verifier is NOT deployed, we use the existing one from VERIFIER_ADDRESS
+    VERIFIER_ADDR="$VERIFIER_ADDRESS"
+    
+    # DegenRPS
+    DEGEN_RPS_ADDR=$(jq -r '.transactions[] | select(.contractName == "DegenRPS" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    
+    # Tokens - get all MockERC20 CREATE transactions
+    TOKEN_ADDRS=($(jq -r '.transactions[] | select(.contractName == "MockERC20" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null))
+    TOKEN0_ADDR="${TOKEN_ADDRS[0]}"
+    TOKEN1_ADDR="${TOKEN_ADDRS[1]}"
+    
+    # Get block numbers (verifier block is 0 since we didn't deploy it)
+    VERIFIER_BLOCK="0"
+    DEGEN_RPS_BLOCK=$(jq -r --arg addr "$DEGEN_RPS_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    TOKEN0_BLOCK=$(jq -r --arg addr "$TOKEN0_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    TOKEN1_BLOCK=$(jq -r --arg addr "$TOKEN1_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    
+    # Convert hex to decimal
+    DEGEN_RPS_BLOCK=$(printf "%d" "$DEGEN_RPS_BLOCK" 2>/dev/null || echo "0")
+    TOKEN0_BLOCK=$(printf "%d" "$TOKEN0_BLOCK" 2>/dev/null || echo "0")
+    TOKEN1_BLOCK=$(printf "%d" "$TOKEN1_BLOCK" 2>/dev/null || echo "0")
+    
+    if [ -z "$DEGEN_RPS_ADDR" ] || [ -z "$TOKEN0_ADDR" ] || [ -z "$TOKEN1_ADDR" ]; then
+        echo "❌ Error: Could not extract all contract addresses"
+        echo "   DegenRPS: $DEGEN_RPS_ADDR"
+        echo "   Token0: $TOKEN0_ADDR"
+        echo "   Token1: $TOKEN1_ADDR"
+        exit 1
+    fi
+    
+    echo "✅ Extracted addresses:"
+    echo "   Verifier (existing):  $VERIFIER_ADDR"
+    echo "   DegenRPS:  $DEGEN_RPS_ADDR"
+    echo "   Token0:    $TOKEN0_ADDR"
+    echo "   Token1:    $TOKEN1_ADDR"
+    echo ""
+    
+    # Update deployments.json with addresses and ABIs
+    echo "📝 Updating frontend/deployments.json..."
+    
+    # Initialize or update deployments.json with Sepolia chain info
+    if [ ! -f {{deployments-file}} ]; then
+        echo "{\"chainId\": \"$SEPOLIA_CHAIN_ID\", \"rpcUrl\": \"$SEPOLIA_RPC_URL\", \"contracts\": {}}" > {{deployments-file}}
+    fi
+    
+    # Update chainId and rpcUrl
+    jq ".chainId = \"$SEPOLIA_CHAIN_ID\" | .rpcUrl = \"$SEPOLIA_RPC_URL\" | .contracts = (.contracts // {})" {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Verifier (ABI from compiled contract, but address from env var)
+    VERIFIER_ABI="[]"
+    if [ -f "out/Verifier.sol/HonkVerifier.json" ]; then
+        VERIFIER_ABI=$(jq -c '.abi' "out/Verifier.sol/HonkVerifier.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "verifier" \
+       --arg addr "$VERIFIER_ADDR" \
+       --argjson abi "$VERIFIER_ABI" \
+       --arg block "$VERIFIER_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save DegenRPS (ABI from compiled contract)
+    DEGEN_RPS_ABI="[]"
+    if [ -f "out/DegenRPS.sol/DegenRPS.json" ]; then
+        DEGEN_RPS_ABI=$(jq -c '.abi' "out/DegenRPS.sol/DegenRPS.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "degenRPS" \
+       --arg addr "$DEGEN_RPS_ADDR" \
+       --argjson abi "$DEGEN_RPS_ABI" \
+       --arg block "$DEGEN_RPS_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Token0 (ABI from compiled contract - MockERC20)
+    TOKEN0_ABI="[]"
+    if [ -f "out/MockERC20.sol/MockERC20.json" ]; then
+        TOKEN0_ABI=$(jq -c '.abi' "out/MockERC20.sol/MockERC20.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "token0" \
+       --arg addr "$TOKEN0_ADDR" \
+       --argjson abi "$TOKEN0_ABI" \
+       --arg block "$TOKEN0_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Token1 (ABI from compiled contract - MockERC20)
+    TOKEN1_ABI="[]"
+    if [ -f "out/MockERC20.sol/MockERC20.json" ]; then
+        TOKEN1_ABI=$(jq -c '.abi' "out/MockERC20.sol/MockERC20.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "token1" \
+       --arg addr "$TOKEN1_ADDR" \
+       --argjson abi "$TOKEN1_ABI" \
+       --arg block "$TOKEN1_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    echo ""
+    echo "✅ Deployment complete! Addresses saved to {{deployments-file}}"
+    echo ""
+    echo "📋 Deployed contracts on Sepolia:"
+    echo "   Verifier (existing):  $VERIFIER_ADDR"
+    echo "   DegenRPS:  $DEGEN_RPS_ADDR"
+    echo "   Token0:    $TOKEN0_ADDR"
+    echo "   Token1:    $TOKEN1_ADDR"
+    echo ""
+    echo "🔗 View on Etherscan:"
+    echo "   Verifier:  https://sepolia.etherscan.io/address/$VERIFIER_ADDR"
+    echo "   DegenRPS:  https://sepolia.etherscan.io/address/$DEGEN_RPS_ADDR"
+    echo "   Token0:    https://sepolia.etherscan.io/address/$TOKEN0_ADDR"
+    echo "   Token1:    https://sepolia.etherscan.io/address/$TOKEN1_ADDR"
+
+# Deploy all contracts to Sepolia testnet
+# Requires: PRIVATE_KEY and INFURA_ETHEREUM_SEPOLIA_RPC environment variables
+# Usage: PRIVATE_KEY=0x... just deploy-arbitrum
+deploy-sepolia:
+    #!/usr/bin/env bash
+    set -e
+    
+    # Sepolia configuration
+    SEPOLIA_CHAIN_ID="11155111"
+    
+    # Check if PRIVATE_KEY is set
+    if [ -z "$PRIVATE_KEY" ]; then
+        echo "❌ Error: PRIVATE_KEY environment variable is required"
+        echo ""
+        echo "   Usage: PRIVATE_KEY=0x... just deploy-arbitrum"
+        echo ""
+        exit 1
+    fi
+    
+    # Check if INFURA_ETHEREUM_SEPOLIA_RPC is set
+    if [ -z "$INFURA_ETHEREUM_SEPOLIA_RPC" ]; then
+        echo "❌ Error: INFURA_ETHEREUM_SEPOLIA_RPC environment variable is required"
+        echo ""
+        echo "   Usage: INFURA_ETHEREUM_SEPOLIA_RPC=https://... PRIVATE_KEY=0x... just deploy-arbitrum"
+        echo ""
+        exit 1
+    fi
+    
+    SEPOLIA_RPC_URL="$INFURA_ETHEREUM_SEPOLIA_RPC"
+    
+    just build
+    
+    echo "🚀 Deploying contracts to Sepolia testnet..."
+    echo "   Chain ID: $SEPOLIA_CHAIN_ID"
+    echo "   RPC URL: $SEPOLIA_RPC_URL"
+    echo ""
+    
+    # Deploy contracts
+    forge script script/Deploy.s.sol:DeployScript \
+        --rpc-url "$SEPOLIA_RPC_URL" \
+        --broadcast \
+        --private-key "$PRIVATE_KEY"
+    
+    echo ""
+    echo "📋 Extracting contract addresses from broadcast files..."
+    
+    # Extract addresses from broadcast JSON
+    BROADCAST_FILE="broadcast/Deploy.s.sol/$SEPOLIA_CHAIN_ID/run-latest.json"
+    
+    if [ ! -f "$BROADCAST_FILE" ]; then
+        echo "❌ Error: Broadcast file not found: $BROADCAST_FILE"
+        exit 1
+    fi
+    
+    # Extract addresses - get all CREATE transactions first
+    # Verifier
+    VERIFIER_ADDR=$(jq -r '.transactions[] | select(.contractName == "HonkVerifier" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    
+    # DegenRPS
+    DEGEN_RPS_ADDR=$(jq -r '.transactions[] | select(.contractName == "DegenRPS" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null | head -1)
+    
+    # Tokens - get all MockERC20 CREATE transactions
+    TOKEN_ADDRS=($(jq -r '.transactions[] | select(.contractName == "MockERC20" and (.transactionType == "CREATE" or .transactionType == "CREATE2")) | .contractAddress' "$BROADCAST_FILE" 2>/dev/null))
+    TOKEN0_ADDR="${TOKEN_ADDRS[0]}"
+    TOKEN1_ADDR="${TOKEN_ADDRS[1]}"
+    
+    # Get block numbers
+    VERIFIER_BLOCK=$(jq -r --arg addr "$VERIFIER_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    DEGEN_RPS_BLOCK=$(jq -r --arg addr "$DEGEN_RPS_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    TOKEN0_BLOCK=$(jq -r --arg addr "$TOKEN0_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    TOKEN1_BLOCK=$(jq -r --arg addr "$TOKEN1_ADDR" '.receipts[] | select(.contractAddress == $addr) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0")
+    
+    # Convert hex to decimal
+    VERIFIER_BLOCK=$(printf "%d" "$VERIFIER_BLOCK" 2>/dev/null || echo "0")
+    DEGEN_RPS_BLOCK=$(printf "%d" "$DEGEN_RPS_BLOCK" 2>/dev/null || echo "0")
+    TOKEN0_BLOCK=$(printf "%d" "$TOKEN0_BLOCK" 2>/dev/null || echo "0")
+    TOKEN1_BLOCK=$(printf "%d" "$TOKEN1_BLOCK" 2>/dev/null || echo "0")
+    
+    if [ -z "$VERIFIER_ADDR" ] || [ -z "$DEGEN_RPS_ADDR" ] || [ -z "$TOKEN0_ADDR" ] || [ -z "$TOKEN1_ADDR" ]; then
+        echo "❌ Error: Could not extract all contract addresses"
+        echo "   Verifier: $VERIFIER_ADDR"
+        echo "   DegenRPS: $DEGEN_RPS_ADDR"
+        echo "   Token0: $TOKEN0_ADDR"
+        echo "   Token1: $TOKEN1_ADDR"
+        exit 1
+    fi
+    
+    echo "✅ Extracted addresses:"
+    echo "   Verifier:  $VERIFIER_ADDR"
+    echo "   DegenRPS:  $DEGEN_RPS_ADDR"
+    echo "   Token0:    $TOKEN0_ADDR"
+    echo "   Token1:    $TOKEN1_ADDR"
+    echo ""
+    
+    # Update deployments.json with addresses and ABIs
+    echo "📝 Updating frontend/deployments.json..."
+    
+    # Initialize or update deployments.json with Sepolia chain info
+    if [ ! -f {{deployments-file}} ]; then
+        echo "{\"chainId\": \"$SEPOLIA_CHAIN_ID\", \"rpcUrl\": \"$SEPOLIA_RPC_URL\", \"contracts\": {}}" > {{deployments-file}}
+    fi
+    
+    # Update chainId and rpcUrl
+    jq ".chainId = \"$SEPOLIA_CHAIN_ID\" | .rpcUrl = \"$SEPOLIA_RPC_URL\" | .contracts = (.contracts // {})" {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Verifier (ABI from compiled contract)
+    VERIFIER_ABI="[]"
+    if [ -f "out/Verifier.sol/HonkVerifier.json" ]; then
+        VERIFIER_ABI=$(jq -c '.abi' "out/Verifier.sol/HonkVerifier.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "verifier" \
+       --arg addr "$VERIFIER_ADDR" \
+       --argjson abi "$VERIFIER_ABI" \
+       --arg block "$VERIFIER_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save DegenRPS (ABI from compiled contract)
+    DEGEN_RPS_ABI="[]"
+    if [ -f "out/DegenRPS.sol/DegenRPS.json" ]; then
+        DEGEN_RPS_ABI=$(jq -c '.abi' "out/DegenRPS.sol/DegenRPS.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "degenRPS" \
+       --arg addr "$DEGEN_RPS_ADDR" \
+       --argjson abi "$DEGEN_RPS_ABI" \
+       --arg block "$DEGEN_RPS_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Token0 (ABI from compiled contract - MockERC20)
+    TOKEN0_ABI="[]"
+    if [ -f "out/MockERC20.sol/MockERC20.json" ]; then
+        TOKEN0_ABI=$(jq -c '.abi' "out/MockERC20.sol/MockERC20.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "token0" \
+       --arg addr "$TOKEN0_ADDR" \
+       --argjson abi "$TOKEN0_ABI" \
+       --arg block "$TOKEN0_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Save Token1 (ABI from compiled contract - MockERC20)
+    TOKEN1_ABI="[]"
+    if [ -f "out/MockERC20.sol/MockERC20.json" ]; then
+        TOKEN1_ABI=$(jq -c '.abi' "out/MockERC20.sol/MockERC20.json" 2>/dev/null || echo "[]")
+    fi
+    jq --arg key "token1" \
+       --arg addr "$TOKEN1_ADDR" \
+       --argjson abi "$TOKEN1_ABI" \
+       --arg block "$TOKEN1_BLOCK" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    echo ""
+    echo "✅ Deployment complete! Addresses saved to {{deployments-file}}"
+    echo ""
+    echo "📋 Deployed contracts on Sepolia:"
+    echo "   Verifier:  $VERIFIER_ADDR"
+    echo "   DegenRPS:  $DEGEN_RPS_ADDR"
+    echo "   Token0:    $TOKEN0_ADDR"
+    echo "   Token1:    $TOKEN1_ADDR"
+    echo ""
+    echo "🔗 View on Etherscan:"
+    echo "   Verifier:  https://sepolia.etherscan.io/address/$VERIFIER_ADDR"
+    echo "   DegenRPS:  https://sepolia.etherscan.io/address/$DEGEN_RPS_ADDR"
+    echo "   Token0:    https://sepolia.etherscan.io/address/$TOKEN0_ADDR"
+    echo "   Token1:    https://sepolia.etherscan.io/address/$TOKEN1_ADDR"
+
 # Show all deployed addresses
 show-addresses:
     #!/usr/bin/env bash
