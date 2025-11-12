@@ -12,6 +12,10 @@
       "destination": "/swap-rps.html"
     },
     {
+      "source": "/(.*\\.json)",
+      "destination": "/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

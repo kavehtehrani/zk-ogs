@@ -1,5 +1,5 @@
 // Generate deployments.json from environment variables at build time
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -64,9 +64,21 @@ if (token1Address) {
   };
 }
 
-// Write deployments.json
-const outputPath = join(__dirname, 'deployments.json');
-writeFileSync(outputPath, JSON.stringify(deployments, null, 2));
+// Write deployments.json to both root (for git) and public (for Vite build)
+const rootPath = join(__dirname, 'deployments.json');
+const publicDir = join(__dirname, 'public');
+const publicPath = join(publicDir, 'deployments.json');
+
+// Ensure public directory exists
+if (!existsSync(publicDir)) {
+  mkdirSync(publicDir, { recursive: true });
+}
+
+// Write to root (for development and git)
+writeFileSync(rootPath, JSON.stringify(deployments, null, 2));
+
+// Write to public (for Vite build output - files in public/ are copied to dist/)
+writeFileSync(publicPath, JSON.stringify(deployments, null, 2));
 
 console.log('✅ Generated deployments.json from environment variables');
 console.log(`   Chain ID: ${deployments.chainId}`);
