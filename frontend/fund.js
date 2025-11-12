@@ -486,27 +486,106 @@ async function mintBoth() {
   }
 }
 
-// Event listeners
-document.getElementById("connectBtn").addEventListener("click", connectWallet);
-document.getElementById("mintToken0Btn").addEventListener("click", mintToken0);
-document.getElementById("mintToken1Btn").addEventListener("click", mintToken1);
-document.getElementById("mintToken0CustomBtn").addEventListener("click", mintToken0Custom);
-document.getElementById("mintToken1CustomBtn").addEventListener("click", mintToken1Custom);
-document.getElementById("mintBothBtn").addEventListener("click", mintBoth);
-document.getElementById("refreshBalancesBtn").addEventListener("click", updateBalances);
-
-// Allow Enter key to trigger custom mint
-document.getElementById("token0Amount").addEventListener("keypress", (e) => {
-  if (e.key === "Enter") {
-    mintToken0Custom();
+// Setup event listeners
+function setupEventListeners() {
+  console.log("Setting up fund.js event listeners...");
+  
+  // Add global error handler
+  window.addEventListener('error', (event) => {
+    console.error('Global error caught:', event.error);
+    if (typeof log === 'function') {
+      log(`❌ JavaScript error: ${event.error?.message || event.message}`);
+    }
+  });
+  
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    if (typeof log === 'function') {
+      log(`❌ Unhandled promise rejection: ${event.reason?.message || event.reason}`);
+    }
+  });
+  
+  const connectBtn = document.getElementById("connectBtn");
+  if (connectBtn) {
+    connectBtn.addEventListener("click", connectWallet);
+    console.log("✅ Connect button listener added");
+  } else {
+    console.error("❌ Connect button not found");
   }
-});
-
-document.getElementById("token1Amount").addEventListener("keypress", (e) => {
-  if (e.key === "Enter") {
-    mintToken1Custom();
+  
+  const mintToken0Btn = document.getElementById("mintToken0Btn");
+  if (mintToken0Btn) {
+    mintToken0Btn.addEventListener("click", mintToken0);
+    console.log("✅ Mint Token0 button listener added");
+  } else {
+    console.error("❌ Mint Token0 button not found");
   }
-});
+  
+  const mintToken1Btn = document.getElementById("mintToken1Btn");
+  if (mintToken1Btn) {
+    mintToken1Btn.addEventListener("click", mintToken1);
+    console.log("✅ Mint Token1 button listener added");
+  } else {
+    console.error("❌ Mint Token1 button not found");
+  }
+  
+  const mintToken0CustomBtn = document.getElementById("mintToken0CustomBtn");
+  if (mintToken0CustomBtn) {
+    mintToken0CustomBtn.addEventListener("click", mintToken0Custom);
+    console.log("✅ Mint Token0 Custom button listener added");
+  } else {
+    console.error("❌ Mint Token0 Custom button not found");
+  }
+  
+  const mintToken1CustomBtn = document.getElementById("mintToken1CustomBtn");
+  if (mintToken1CustomBtn) {
+    mintToken1CustomBtn.addEventListener("click", mintToken1Custom);
+    console.log("✅ Mint Token1 Custom button listener added");
+  } else {
+    console.error("❌ Mint Token1 Custom button not found");
+  }
+  
+  const mintBothBtn = document.getElementById("mintBothBtn");
+  if (mintBothBtn) {
+    mintBothBtn.addEventListener("click", mintBoth);
+    console.log("✅ Mint Both button listener added");
+  } else {
+    console.error("❌ Mint Both button not found");
+  }
+  
+  const refreshBalancesBtn = document.getElementById("refreshBalancesBtn");
+  if (refreshBalancesBtn) {
+    refreshBalancesBtn.addEventListener("click", updateBalances);
+    console.log("✅ Refresh Balances button listener added");
+  } else {
+    console.error("❌ Refresh Balances button not found");
+  }
+  
+  // Allow Enter key to trigger custom mint
+  const token0Amount = document.getElementById("token0Amount");
+  if (token0Amount) {
+    token0Amount.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        mintToken0Custom();
+      }
+    });
+    console.log("✅ Token0 amount Enter key listener added");
+  } else {
+    console.error("❌ Token0 amount input not found");
+  }
+  
+  const token1Amount = document.getElementById("token1Amount");
+  if (token1Amount) {
+    token1Amount.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        mintToken1Custom();
+      }
+    });
+    console.log("✅ Token1 amount Enter key listener added");
+  } else {
+    console.error("❌ Token1 amount input not found");
+  }
+}
 
 // Listen for network changes
 if (typeof window.ethereum !== "undefined") {
@@ -535,12 +614,23 @@ if (typeof window.ethereum !== "undefined") {
 // Initialize on load
 async function init() {
   try {
+    // Setup event listeners FIRST, before any async operations
+    setupEventListeners();
+    
     await loadDeployments();
     log("🚀 Application ready!");
     log("💡 Connect your wallet to start minting tokens");
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
+    console.error("Initialization error:", error);
+    // Even if initialization fails, event listeners should still work
   }
 }
 
-init();
+// Wait for DOM to be ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  // DOM is already ready, run immediately
+  init();
+}

@@ -2059,24 +2059,84 @@ function showGameResult(announcement, winner, game) {
   });
 }
 
-// Event listeners
-document.getElementById("connectBtn").addEventListener("click", connectWallet);
-document.getElementById("createGameBtn").addEventListener("click", createGame);
-document.getElementById("joinGameBtn").addEventListener("click", joinGame);
-document
-  .getElementById("rockBtn")
-  .addEventListener("click", () => selectMove(0));
-document
-  .getElementById("paperBtn")
-  .addEventListener("click", () => selectMove(1));
-document
-  .getElementById("scissorsBtn")
-  .addEventListener("click", () => selectMove(2));
-
-// Update join button state when game ID is entered
-document.getElementById("gameIdInput").addEventListener("input", () => {
-  updateButtonStates();
-});
+// Setup event listeners
+function setupEventListeners() {
+  console.log("Setting up app.js event listeners...");
+  
+  // Add global error handler
+  window.addEventListener('error', (event) => {
+    console.error('Global error caught:', event.error);
+    if (typeof log === 'function') {
+      log(`❌ JavaScript error: ${event.error?.message || event.message}`);
+    }
+  });
+  
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    if (typeof log === 'function') {
+      log(`❌ Unhandled promise rejection: ${event.reason?.message || event.reason}`);
+    }
+  });
+  
+  const connectBtn = document.getElementById("connectBtn");
+  if (connectBtn) {
+    connectBtn.addEventListener("click", connectWallet);
+    console.log("✅ Connect button listener added");
+  } else {
+    console.error("❌ Connect button not found");
+  }
+  
+  const createGameBtn = document.getElementById("createGameBtn");
+  if (createGameBtn) {
+    createGameBtn.addEventListener("click", createGame);
+    console.log("✅ Create Game button listener added");
+  } else {
+    console.error("❌ Create Game button not found");
+  }
+  
+  const joinGameBtn = document.getElementById("joinGameBtn");
+  if (joinGameBtn) {
+    joinGameBtn.addEventListener("click", joinGame);
+    console.log("✅ Join Game button listener added");
+  } else {
+    console.error("❌ Join Game button not found");
+  }
+  
+  const rockBtn = document.getElementById("rockBtn");
+  if (rockBtn) {
+    rockBtn.addEventListener("click", () => selectMove(0));
+    console.log("✅ Rock button listener added");
+  } else {
+    console.error("❌ Rock button not found");
+  }
+  
+  const paperBtn = document.getElementById("paperBtn");
+  if (paperBtn) {
+    paperBtn.addEventListener("click", () => selectMove(1));
+    console.log("✅ Paper button listener added");
+  } else {
+    console.error("❌ Paper button not found");
+  }
+  
+  const scissorsBtn = document.getElementById("scissorsBtn");
+  if (scissorsBtn) {
+    scissorsBtn.addEventListener("click", () => selectMove(2));
+    console.log("✅ Scissors button listener added");
+  } else {
+    console.error("❌ Scissors button not found");
+  }
+  
+  // Update join button state when game ID is entered
+  const gameIdInput = document.getElementById("gameIdInput");
+  if (gameIdInput) {
+    gameIdInput.addEventListener("input", () => {
+      updateButtonStates();
+    });
+    console.log("✅ Game ID input listener added");
+  } else {
+    console.error("❌ Game ID input not found");
+  }
+}
 
 // Listen for network changes in MetaMask
 if (typeof window.ethereum !== "undefined") {
@@ -2101,6 +2161,10 @@ if (typeof window.ethereum !== "undefined") {
 // Initialize on load
 async function init() {
   try {
+    // Setup event listeners FIRST, before any async operations
+    // This ensures buttons work even if deployment loading fails
+    setupEventListeners();
+    
     await loadContractArtifact();
     await initNoir();
 
@@ -2173,7 +2237,15 @@ async function init() {
     await updateGameResolutionStatus();
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
+    console.error("Initialization error:", error);
+    // Even if initialization fails, event listeners should still work
   }
 }
 
-init();
+// Wait for DOM to be ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  // DOM is already ready, run immediately
+  init();
+}

@@ -3622,6 +3622,21 @@ function switchView(view) {
 function setupEventListeners() {
   console.log("Setting up event listeners...");
   
+  // Add global error handler to catch any unhandled errors
+  window.addEventListener('error', (event) => {
+    console.error('Global error caught:', event.error);
+    if (typeof log === 'function') {
+      log(`❌ JavaScript error: ${event.error?.message || event.message}`);
+    }
+  });
+  
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    if (typeof log === 'function') {
+      log(`❌ Unhandled promise rejection: ${event.reason?.message || event.reason}`);
+    }
+  });
+  
   // Tab switching
   const makerTabBtn = document.getElementById("makerTabBtn");
   const takerTabBtn = document.getElementById("takerTabBtn");
@@ -3643,18 +3658,24 @@ function setupEventListeners() {
   // Maker view buttons
   const makerApproveBtn = document.getElementById("makerApproveTokenBtn");
   if (makerApproveBtn) {
-    makerApproveBtn.addEventListener("click", (e) => {
+    makerApproveBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       console.log("Maker approve button clicked!");
-      approveToken("maker").catch(error => {
+      try {
+        await approveToken("maker");
+      } catch (error) {
         console.error("Error in approveToken:", error);
         log(`❌ Unexpected error: ${error.message}`);
-      });
+        // Re-throw to ensure error is visible
+        throw error;
+      }
     });
     console.log("✅ Maker approve button listener added");
   } else {
     console.error("❌ Maker approve button not found in DOM");
+    // Log all button IDs to help debug
+    console.error("Available button IDs:", Array.from(document.querySelectorAll("button[id]")).map(b => b.id));
   }
 
   const makerCreateBtn = document.getElementById("makerCreateGameBtn");
@@ -3693,11 +3714,15 @@ function setupEventListeners() {
         console.error("Error in createMakerGame:", error);
         log(`❌ Unexpected error: ${error.message}`);
         console.error("Full error:", error);
+        // Re-throw to ensure error is visible in console
+        throw error;
       }
     });
     console.log("✅ Maker create button listener added");
   } else {
     console.error("❌ Maker create button not found in DOM");
+    // Log all button IDs to help debug
+    console.error("Available button IDs:", Array.from(document.querySelectorAll("button[id]")).map(b => b.id));
   }
 
   const makerRefreshBtn = document.getElementById("makerRefreshBtn");
@@ -3794,7 +3819,8 @@ if (typeof window.ethereum !== "undefined") {
 // Initialize on load
 async function init() {
   try {
-    // Setup event listeners first
+    // Setup event listeners FIRST, before any async operations
+    // This ensures buttons work even if deployment loading fails
     setupEventListeners();
     
     await loadDeployments();
@@ -3803,6 +3829,8 @@ async function init() {
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
     console.error("Initialization error:", error);
+    // Even if initialization fails, event listeners should still work
+    // They'll just show errors when clicked
   }
 }
 
@@ -3810,5 +3838,6 @@ async function init() {
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);
 } else {
+  // DOM is already ready, run immediately
   init();
 }
