@@ -1,4 +1,4 @@
-# Uniswap V4 Hook with ZK Rock Paper Scissors Game
+# ZK Rock Paper Scissors Game - Degen Edition
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 ![Solidity 0.8.20](https://img.shields.io/badge/Solidity-0.8.20-363636?logo=solidity)
