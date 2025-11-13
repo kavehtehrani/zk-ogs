@@ -1,6 +1,10 @@
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { Noir } from "@noir-lang/noir_js";
 import { ethers } from "ethers";
+import { log } from "./utils/logger.js";
+import { getNetworkName, normalizeChainId } from "./utils/network.js";
+import { initNoir as initNoirFromModule } from "./utils/contracts.js";
+import { loadDeployments as loadDeploymentsFromModule } from "./utils/contracts.js";
 
 // Circuit will be loaded dynamically
 let circuit = null;
@@ -44,34 +48,15 @@ async function loadContractArtifact() {
   }
 }
 
-// Initialize Noir
+// Initialize Noir - using shared utility
 async function initNoir() {
   try {
-    log("Loading circuit...");
-    const circuitResponse = await fetch("/target/circuit.json");
-    if (!circuitResponse.ok) {
-      throw new Error(`Failed to load circuit: ${circuitResponse.statusText}`);
+    const noirResult = await initNoirFromModule();
+    if (noirResult) {
+      circuit = noirResult.circuit;
+      noir = noirResult.noir;
+      backend = noirResult.backend;
     }
-    // Check if response is actually JSON (not HTML error page)
-    const contentType = circuitResponse.headers.get("content-type");
-    const text = await circuitResponse.text();
-    if (!contentType || !contentType.includes("application/json")) {
-      if (
-        text.trim().startsWith("<!DOCTYPE") ||
-        text.trim().startsWith("<html")
-      ) {
-        throw new Error(
-          "Received HTML instead of JSON. /target/circuit.json may not exist or Vercel routing is misconfigured."
-        );
-      }
-      throw new Error(`Expected JSON but got ${contentType}`);
-    }
-    circuit = JSON.parse(text);
-
-    log("Initializing Noir and Barretenberg...");
-    noir = new Noir(circuit);
-    backend = new UltraHonkBackend(circuit.bytecode);
-    log("✅ Noir initialized successfully");
   } catch (error) {
     log(`❌ Error initializing Noir: ${error.message}`);
     log("💡 Make sure circuit.json exists in frontend/target/");
@@ -80,60 +65,7 @@ async function initNoir() {
   }
 }
 
-// Logging utility - track last log entry for collapsing repeated messages
-let lastLogEntry = null;
-let lastLogMessage = null;
-let lastLogEmoji = null;
-let logRepeatCount = 0;
-
-function log(message) {
-  const logsDiv = document.getElementById("logs");
-
-  // Determine emoji based on message type
-  let emoji = "📝";
-  if (message.includes("✅")) emoji = "✅";
-  else if (message.includes("❌")) emoji = "❌";
-  else if (message.includes("⚠️")) emoji = "⚠️";
-  else if (message.includes("💡")) emoji = "💡";
-  else if (message.includes("🎉")) emoji = "🎉";
-  else if (message.includes("⏳")) emoji = "⏳";
-  else if (message.includes("🚀")) emoji = "🚀";
-
-  // Check if this is a repeat of the last message
-  if (lastLogEntry && lastLogMessage === message && lastLogEmoji === emoji) {
-    // Increment repeat count
-    logRepeatCount++;
-
-    // Update the last entry with the count badge
-    lastLogEntry.innerHTML = `
-      <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
-      <span class="ml-2">${emoji} ${message}</span>
-      <span class="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">${
-        logRepeatCount + 1
-      }</span>
-    `;
-
-    logsDiv.scrollTop = logsDiv.scrollHeight;
-    return;
-  }
-
-  // New message - reset repeat count and create new entry
-  logRepeatCount = 0;
-  const entry = document.createElement("div");
-  entry.className = "log-entry rounded-lg";
-
-  entry.innerHTML = `
-    <span class="text-gray-500 text-sm">[${new Date().toLocaleTimeString()}]</span>
-    <span class="ml-2">${emoji} ${message}</span>
-  `;
-  logsDiv.appendChild(entry);
-  logsDiv.scrollTop = logsDiv.scrollHeight;
-
-  // Update tracking variables
-  lastLogEntry = entry;
-  lastLogMessage = message;
-  lastLogEmoji = emoji;
-}
+// Logging utility is now imported from utils/logger.js
 
 // Update step checkmarks based on current state
 function updateStepCheckmarks() {
@@ -178,191 +110,38 @@ function updateStepCheckmarks() {
   }
 }
 
-// Get network name from chain ID
-function getNetworkName(chainId) {
-  if (!chainId) return "Unknown";
+// getNetworkName is now imported from utils/network.js
+// Note: app.js uses additional networks (Mumbai, Polygon, Arbitrum, Optimism)
+// We may need to enhance utils/network.js to support these, but for now
+// the shared version will work for common networks
 
-  const chainIdNum =
-    typeof chainId === "string"
-      ? chainId.startsWith("0x")
-        ? parseInt(chainId, 16)
-        : parseInt(chainId)
-      : Number(chainId);
+// getBlockExplorerUrl is now imported from utils/network.js
 
-  const networkMap = {
-    1: "Mainnet",
-    11155111: "Sepolia",
-    31337: "Localhost",
-    1337: "Localhost",
-    5: "Goerli",
-    80001: "Mumbai",
-    137: "Polygon",
-    42161: "Arbitrum",
-    10: "Optimism",
-  };
-
-  return networkMap[chainIdNum] || `Chain ${chainIdNum}`;
-}
-
-// Get block explorer URL for a chain ID
-function getBlockExplorerUrl(chainId) {
-  if (!chainId) return [];
-
-  const chainIdNum =
-    typeof chainId === "string"
-      ? chainId.startsWith("0x")
-        ? parseInt(chainId, 16)
-        : parseInt(chainId)
-      : Number(chainId);
-
-  const explorerMap = {
-    1: ["https://etherscan.io"],
-    11155111: ["https://sepolia.etherscan.io"],
-    5: ["https://goerli.etherscan.io"],
-    80001: ["https://mumbai.polygonscan.com"],
-    137: ["https://polygonscan.com"],
-    42161: ["https://arbiscan.io"],
-    10: ["https://optimistic.etherscan.io"],
-  };
-
-  return explorerMap[chainIdNum] || [];
-}
-
-// Normalize chain ID to string for comparison
-function normalizeChainId(chainId) {
-  if (!chainId) return null;
-  if (typeof chainId === "string") {
-    // Handle hex strings
-    if (chainId.startsWith("0x")) {
-      return parseInt(chainId, 16).toString();
-    }
-    return chainId;
-  }
-  // Handle BigInt, number, etc.
-  return chainId.toString();
-}
-
-// Ensure we're on the correct network before sending transactions
+// Ensure we're on the correct network - RESTORED TO ORIGINAL SIMPLE VERSION
 async function ensureCorrectNetwork() {
-  if (!window.ethereum) {
-    log("❌ MetaMask not available");
-    return false;
-  }
-
-  if (!DEPLOYED_CHAIN_ID) {
-    log("⚠️ No chain ID configured in deployments.json");
-    return true; // No network requirement
-  }
-
+  // Request network switch to Sepolia if needed
+  // Sepolia testnet uses chain ID 11155111
   try {
-    // Always use window.ethereum directly for network checks to get the most current state
-    const currentChainIdHex = await window.ethereum.request({
-      method: "eth_chainId",
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0xAA36A7" }], // 11155111 in hex
     });
-    const currentChainId = normalizeChainId(currentChainIdHex);
-    const targetChainId = normalizeChainId(DEPLOYED_CHAIN_ID);
-
-    log(`🔍 Network check: Current=${currentChainId}, Target=${targetChainId}`);
-
-    // If already on correct network, return
-    if (currentChainId === targetChainId) {
-      log(`✅ Already on correct network (Chain ID: ${targetChainId})`);
-      return true;
-    }
-
-    // Need to switch networks
-    const networkName = getNetworkName(targetChainId);
-    log(
-      `🔄 Switching from Chain ${currentChainId} to ${networkName} (Chain ID: ${targetChainId})...`
-    );
-
-    const targetChainIdHex = `0x${BigInt(targetChainId).toString(16)}`;
-    log(`🔧 Requesting switch to chain ID: ${targetChainIdHex}`);
-
-    try {
+  } catch (switchError) {
+    // Chain doesn't exist, add it
+    if (switchError.code === 4902) {
       await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: targetChainIdHex }],
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: "0xAA36A7", // 11155111 in hex (Sepolia)
+            chainName: "Sepolia",
+            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+            rpcUrls: ["https://sepolia.infura.io/v3/"],
+            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+          },
+        ],
       });
-      log(`✅ Switched to ${networkName}`);
-
-      // Wait a moment for the switch to complete
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Update provider after network switch
-      provider = new ethers.BrowserProvider(window.ethereum);
-      if (signer) {
-        signer = await provider.getSigner();
-        if (CONTRACT_ADDRESS && CONTRACT_ABI) {
-          contract = new ethers.Contract(
-            CONTRACT_ADDRESS,
-            CONTRACT_ABI,
-            signer
-          );
-        }
-      }
-
-      return true;
-    } catch (switchError) {
-      log(
-        `⚠️ Switch error code: ${switchError.code}, message: ${switchError.message}`
-      );
-
-      // Chain doesn't exist, try to add it if we have RPC URL
-      if (switchError.code === 4902 && DEPLOYED_RPC_URL) {
-        log(`➕ Chain not found in MetaMask. Adding ${networkName} network...`);
-        try {
-          await window.ethereum.request({
-            method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: targetChainIdHex,
-                chainName: networkName,
-                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                rpcUrls: [DEPLOYED_RPC_URL],
-                blockExplorerUrls: getBlockExplorerUrl(targetChainId),
-              },
-            ],
-          });
-          log(`✅ Added ${networkName} network to MetaMask`);
-
-          // Wait a moment for the addition to complete
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Update provider after adding network
-          provider = new ethers.BrowserProvider(window.ethereum);
-          if (signer) {
-            signer = await provider.getSigner();
-            if (CONTRACT_ADDRESS && CONTRACT_ABI) {
-              contract = new ethers.Contract(
-                CONTRACT_ADDRESS,
-                CONTRACT_ABI,
-                signer
-              );
-            }
-          }
-
-          return true;
-        } catch (addError) {
-          log(`❌ Could not add network: ${addError.message}`);
-          log(`💡 Please manually add the network in MetaMask`);
-          log(
-            `💡 Chain ID: ${targetChainId} (${targetChainIdHex}), RPC: ${DEPLOYED_RPC_URL}`
-          );
-          return false;
-        }
-      } else {
-        log(`❌ Could not switch network: ${switchError.message}`);
-        log(
-          `💡 Please manually switch to ${networkName} (Chain ID: ${targetChainId}) in MetaMask`
-        );
-        return false;
-      }
     }
-  } catch (error) {
-    log(`❌ Error checking network: ${error.message}`);
-    console.error("Network check error:", error);
-    return false;
   }
 }
 
@@ -403,29 +182,44 @@ async function updateContractAddressDisplay() {
   }
 }
 
-// Connect wallet
+// Connect wallet - RESTORED TO EXACT ORIGINAL VERSION
 async function connectWallet() {
   if (typeof window.ethereum === "undefined") {
     log("❌ MetaMask not found. Please install MetaMask.");
-    if (DEPLOYED_CHAIN_ID) {
-      const networkName = getNetworkName(DEPLOYED_CHAIN_ID);
-      log(
-        `💡 Tip: Make sure MetaMask is installed and configured for ${networkName} (Chain ID: ${DEPLOYED_CHAIN_ID})`
-      );
-    } else {
-      log(
-        "💡 Tip: Make sure MetaMask is installed and configured for the correct network"
-      );
-    }
+    log(
+      "💡 Tip: Make sure MetaMask is installed and configured for Sepolia testnet (Chain ID: 11155111)"
+    );
     return;
   }
 
   try {
+    // Request network switch to Sepolia if needed
+    // Sepolia testnet uses chain ID 11155111
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0xAA36A7" }], // 11155111 in hex
+      });
+    } catch (switchError) {
+      // Chain doesn't exist, add it
+      if (switchError.code === 4902) {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: "0xAA36A7", // 11155111 in hex (Sepolia)
+              chainName: "Sepolia",
+              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://sepolia.infura.io/v3/"],
+              blockExplorerUrls: ["https://sepolia.etherscan.io"],
+            },
+          ],
+        });
+      }
+    }
+
+    // Create provider AFTER network switch (original order)
     provider = new ethers.BrowserProvider(window.ethereum);
-
-    // Ensure we're on the correct network
-    await ensureCorrectNetwork();
-
     await provider.send("eth_requestAccounts", []);
     signer = await provider.getSigner();
     const address = await signer.getAddress();
@@ -487,9 +281,26 @@ function convertTimeoutToSeconds(value, unit) {
 
 // Create game - Player 1 must select move first
 async function createGame() {
+  // Ensure contract is initialized
   if (!contract) {
-    log("❌ Contract not loaded. Please deploy contract first.");
-    return;
+    if (!CONTRACT_ADDRESS || !CONTRACT_ABI) {
+      log(
+        "❌ Contract address or ABI not loaded. Please wait for initialization."
+      );
+      return;
+    }
+    if (!signer) {
+      log("❌ Wallet not connected. Please connect your wallet first.");
+      return;
+    }
+    // Try to initialize contract
+    try {
+      contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      log("✅ Contract initialized");
+    } catch (error) {
+      log(`❌ Failed to initialize contract: ${error.message}`);
+      return;
+    }
   }
 
   // Check if move is already selected
@@ -499,10 +310,31 @@ async function createGame() {
   }
 
   // Ensure we're on the correct network before sending transaction
-  const networkOk = await ensureCorrectNetwork();
-  if (!networkOk) {
-    log("❌ Please switch to the correct network and try again");
-    return;
+  await ensureCorrectNetwork();
+
+  // CRITICAL: After network switch, provider and signer must be refreshed
+  // because they're tied to the network
+  if (window.ethereum) {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    log("✅ Provider and signer refreshed after network check");
+  }
+
+  // Re-initialize contract after network check (in case provider/signer changed)
+  if (signer && CONTRACT_ADDRESS && CONTRACT_ABI) {
+    try {
+      const currentAddress = await signer.getAddress();
+      // Re-initialize contract to ensure it has the latest signer
+      contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      log(
+        `✅ Contract re-initialized with signer: ${currentAddress.slice(
+          0,
+          6
+        )}...${currentAddress.slice(-4)}`
+      );
+    } catch (error) {
+      log(`⚠️ Could not re-initialize contract: ${error.message}`);
+    }
   }
 
   const btn = document.getElementById("createGameBtn");
@@ -511,6 +343,34 @@ async function createGame() {
   btn.innerHTML = "⏳ Creating...";
 
   try {
+    // Verify provider and signer are set
+    if (!provider) {
+      log("❌ Provider not initialized. Please connect your wallet first.");
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      return;
+    }
+    if (!signer) {
+      log("❌ Signer not initialized. Please connect your wallet first.");
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      return;
+    }
+
+    // Verify contract is initialized
+    if (!contract) {
+      log("❌ Contract not initialized. Attempting to initialize...");
+      if (CONTRACT_ADDRESS && CONTRACT_ABI) {
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        log("✅ Contract initialized");
+      } else {
+        log("❌ Contract address or ABI not available");
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        return;
+      }
+    }
+
     // First, verify contract exists and is accessible
     log(`🔍 Verifying contract at address: ${CONTRACT_ADDRESS}`);
     const code = await provider.getCode(CONTRACT_ADDRESS);
@@ -531,6 +391,9 @@ async function createGame() {
     } catch (verifyError) {
       log(`⚠️ Could not verify contract interface: ${verifyError.message}`);
       log(`💡 The contract may have a different ABI than expected`);
+      log(
+        `💡 This might be okay if gameCounter doesn't exist, continuing anyway...`
+      );
     }
 
     // Verify the function selector
@@ -611,10 +474,37 @@ async function createGame() {
       return;
     }
 
+    // Verify contract has correct signer before estimating gas
+    try {
+      const signerAddress = await signer.getAddress();
+      log(`🔍 Signer address: ${signerAddress}`);
+      log(`🔍 Contract address: ${CONTRACT_ADDRESS}`);
+      log(`🔍 Provider network: ${(await provider.getNetwork()).chainId}`);
+
+      // Ensure contract is using the current signer
+      if (contract.signer) {
+        const contractSignerAddress = await contract.signer.getAddress();
+        if (
+          contractSignerAddress.toLowerCase() !== signerAddress.toLowerCase()
+        ) {
+          log(`🔄 Contract signer mismatch. Re-initializing...`);
+          contract = new ethers.Contract(
+            CONTRACT_ADDRESS,
+            CONTRACT_ABI,
+            signer
+          );
+        }
+      }
+    } catch (checkError) {
+      log(`⚠️ Error checking signer: ${checkError.message}`);
+    }
+
     // Try to estimate gas first to catch errors early
     let gasEstimate;
     try {
       log(`⛽ Estimating gas...`);
+      log(`   Commitment: ${commitment}`);
+      log(`   Timeout: ${timeoutUint} seconds`);
       gasEstimate = await contract.createGame.estimateGas(
         commitment,
         timeoutUint
@@ -644,8 +534,11 @@ async function createGame() {
         log(`📋 Error code: ${estimateError.code}`);
       }
       log(`💡 This usually means the transaction would revert.`);
-      log(`💡 Check Anvil logs for the actual revert reason.`);
+      log(
+        `💡 Check contract logs or Anvil/Hardhat console for the actual revert reason.`
+      );
       log(`💡 The contract might have different requirements than expected.`);
+      log(`💡 Verify the contract address and ABI are correct.`);
       btn.disabled = false;
       btn.innerHTML = originalText;
       return;
@@ -822,11 +715,7 @@ async function joinGame() {
   }
 
   // Ensure we're on the correct network before sending transaction
-  const networkOk = await ensureCorrectNetwork();
-  if (!networkOk) {
-    log("❌ Please switch to the correct network and try again");
-    return;
-  }
+  await ensureCorrectNetwork();
 
   const btn = document.getElementById("joinGameBtn");
   const originalText = btn.innerHTML;
@@ -1934,11 +1823,7 @@ async function forfeitGame() {
   if (!contract || !gameState.gameId) return;
 
   // Ensure we're on the correct network before sending transaction
-  const networkOk = await ensureCorrectNetwork();
-  if (!networkOk) {
-    log("❌ Please switch to the correct network and try again");
-    return;
-  }
+  await ensureCorrectNetwork();
 
   try {
     log("Calling forfeitGame()...");
@@ -2246,64 +2131,29 @@ async function init() {
     await loadContractArtifact();
     await initNoir();
 
-    // Load contract address from deployments.json
+    // Load contract address from deployments.json - using shared utility
     try {
-      log(
-        `🔍 Loading deployments.json from ${window.location.origin}/deployments.json`
-      );
-      const deploymentsResponse = await fetch("/deployments.json");
-      log(
-        `📡 Response status: ${deploymentsResponse.status} ${deploymentsResponse.statusText}`
-      );
-
-      if (deploymentsResponse.ok) {
-        // Check if response is actually JSON (not HTML error page)
-        const contentType = deploymentsResponse.headers.get("content-type");
-        const text = await deploymentsResponse.text();
-        if (!contentType || !contentType.includes("application/json")) {
-          if (
-            text.trim().startsWith("<!DOCTYPE") ||
-            text.trim().startsWith("<html")
-          ) {
-            throw new Error(
-              "Received HTML instead of JSON. deployments.json may not exist or Vercel routing is misconfigured."
-            );
-          }
-          throw new Error(`Expected JSON but got ${contentType}`);
-        }
-        const deployments = JSON.parse(text);
-        log(`📋 Loaded deployments.json`);
-
-        // Store network configuration
-        if (deployments.chainId) {
-          DEPLOYED_CHAIN_ID = deployments.chainId.toString(); // Ensure it's a string
-          const networkName = getNetworkName(DEPLOYED_CHAIN_ID);
-          log(`🌐 Chain ID: ${DEPLOYED_CHAIN_ID} (${networkName})`);
-          log(`🔧 Normalized Chain ID: ${normalizeChainId(DEPLOYED_CHAIN_ID)}`);
-        }
-        if (deployments.rpcUrl) {
-          DEPLOYED_RPC_URL = deployments.rpcUrl;
+      const loaded = await loadDeploymentsFromModule();
+      if (loaded) {
+        DEPLOYED_CHAIN_ID = loaded.DEPLOYED_CHAIN_ID;
+        DEPLOYED_RPC_URL = loaded.DEPLOYED_RPC_URL;
+        const networkName = getNetworkName(DEPLOYED_CHAIN_ID);
+        log(`🌐 Chain ID: ${DEPLOYED_CHAIN_ID} (${networkName})`);
+        log(`🔧 Normalized Chain ID: ${normalizeChainId(DEPLOYED_CHAIN_ID)}`);
+        if (DEPLOYED_RPC_URL) {
           log(`🌐 RPC URL: ${DEPLOYED_RPC_URL}`);
         }
 
-        // Extract RockPaperScissors contract address
-        if (deployments.contracts && deployments.contracts.rockPaperScissors) {
-          CONTRACT_ADDRESS = deployments.contracts.rockPaperScissors.address;
-          log(
-            `✅ Loaded RockPaperScissors contract address: ${CONTRACT_ADDRESS}`
-          );
-          await updateContractAddressDisplay();
-        } else {
-          log(`⚠️ rockPaperScissors contract not found in deployments.json`);
-          log(
-            `📋 Available contracts:`,
-            Object.keys(deployments.contracts || {})
-          );
-        }
-      } else {
+        // Extract RockPaperScissors contract address from deployments
+        // NOTE: For / endpoint (app.js), we use a different contract address than swap-rps.js
+        const deployments = loaded.deployments;
+
+        // Use the specific contract address for the / endpoint
+        CONTRACT_ADDRESS = "0x4F58EC6bd5e9c26f19a56265c9393f9AFfA232D2";
         log(
-          `⚠️ Failed to load deployments.json: ${deploymentsResponse.status} ${deploymentsResponse.statusText}`
+          `✅ Using RockPaperScissors contract address for / endpoint: ${CONTRACT_ADDRESS}`
         );
+        await updateContractAddressDisplay();
       }
     } catch (error) {
       log(`⚠️ Could not load deployments.json: ${error.message}`);

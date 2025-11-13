@@ -34,12 +34,34 @@ export function normalizeChainId(chainId) {
   return chainId.toString();
 }
 
+// Get block explorer URL for a chain ID
+export function getBlockExplorerUrl(chainId) {
+  if (!chainId) return [];
+
+  const chainIdNum =
+    typeof chainId === "string"
+      ? chainId.startsWith("0x")
+        ? parseInt(chainId, 16)
+        : parseInt(chainId)
+      : Number(chainId);
+
+  const explorerMap = {
+    1: ["https://etherscan.io"],
+    11155111: ["https://sepolia.etherscan.io"],
+    5: ["https://goerli.etherscan.io"],
+  };
+
+  return explorerMap[chainIdNum] || [];
+}
+
 // Ensure we're on the correct network
 export async function ensureCorrectNetwork(
   DEPLOYED_CHAIN_ID,
   provider,
   signer,
-  initializeContracts
+  initializeContracts,
+  DEPLOYED_RPC_URL = null,
+  updateProviderAndSigner = null
 ) {
   if (!window.ethereum) {
     log("❌ MetaMask not available");
@@ -58,14 +80,21 @@ export async function ensureCorrectNetwork(
     const currentChainId = normalizeChainId(currentChainIdHex);
     const targetChainId = normalizeChainId(DEPLOYED_CHAIN_ID);
 
+    log(`🔍 Network check: Current=${currentChainId}, Target=${targetChainId}`);
+
     if (currentChainId === targetChainId) {
+      log(`✅ Already on correct network (Chain ID: ${targetChainId})`);
       return true;
     }
 
     const networkName = getNetworkName(targetChainId);
-    log(`🔄 Switching to ${networkName} (Chain ID: ${targetChainId})...`);
+    log(
+      `🔄 Switching from Chain ${currentChainId} to ${networkName} (Chain ID: ${targetChainId})...`
+    );
 
     const targetChainIdHex = `0x${BigInt(targetChainId).toString(16)}`;
+    log(`🔧 Requesting switch to chain ID: ${targetChainIdHex}`);
+
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
@@ -73,14 +102,80 @@ export async function ensureCorrectNetwork(
       });
       log(`✅ Switched to ${networkName}`);
       await new Promise((resolve) => setTimeout(resolve, 500));
-      // Note: provider and signer should be updated by the caller
+
+      // Update provider and signer if callback provided
+      if (updateProviderAndSigner) {
+        await updateProviderAndSigner();
+      } else if (provider) {
+        // Fallback: update provider if provided
+        provider = new ethers.BrowserProvider(window.ethereum);
+        if (signer) {
+          signer = await provider.getSigner();
+          if (initializeContracts) {
+            await initializeContracts();
+          }
+        }
+      }
+
       return true;
     } catch (switchError) {
-      log(`❌ Could not switch network: ${switchError.message}`);
-      return false;
+      log(
+        `⚠️ Switch error code: ${switchError.code}, message: ${switchError.message}`
+      );
+
+      // Chain doesn't exist, try to add it if we have RPC URL
+      if (switchError.code === 4902 && DEPLOYED_RPC_URL) {
+        log(`➕ Chain not found in MetaMask. Adding ${networkName} network...`);
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: targetChainIdHex,
+                chainName: networkName,
+                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                rpcUrls: [DEPLOYED_RPC_URL],
+                blockExplorerUrls: getBlockExplorerUrl(targetChainId),
+              },
+            ],
+          });
+          log(`✅ Added ${networkName} network to MetaMask`);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          // Update provider and signer if callback provided
+          if (updateProviderAndSigner) {
+            await updateProviderAndSigner();
+          } else if (provider) {
+            // Fallback: update provider if provided
+            provider = new ethers.BrowserProvider(window.ethereum);
+            if (signer) {
+              signer = await provider.getSigner();
+              if (initializeContracts) {
+                await initializeContracts();
+              }
+            }
+          }
+
+          return true;
+        } catch (addError) {
+          log(`❌ Could not add network: ${addError.message}`);
+          log(`💡 Please manually add the network in MetaMask`);
+          log(
+            `💡 Chain ID: ${targetChainId} (${targetChainIdHex}), RPC: ${DEPLOYED_RPC_URL}`
+          );
+          return false;
+        }
+      } else {
+        log(`❌ Could not switch network: ${switchError.message}`);
+        log(
+          `💡 Please manually switch to ${networkName} (Chain ID: ${targetChainId}) in MetaMask`
+        );
+        return false;
+      }
     }
   } catch (error) {
     log(`❌ Error checking network: ${error.message}`);
+    console.error("Network check error:", error);
     return false;
   }
 }

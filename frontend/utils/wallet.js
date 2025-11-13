@@ -20,7 +20,15 @@ export async function connectWallet(
 
   try {
     providerRef.current = new ethers.BrowserProvider(window.ethereum);
+    if (!providerRef.current) {
+      log("❌ Failed to create provider");
+      return;
+    }
     await ensureCorrectNetwork();
+    // Re-check provider after network switch (it might have been updated)
+    if (!providerRef.current) {
+      providerRef.current = new ethers.BrowserProvider(window.ethereum);
+    }
     await providerRef.current.send("eth_requestAccounts", []);
     signerRef.current = await providerRef.current.getSigner();
     const address = await signerRef.current.getAddress();
