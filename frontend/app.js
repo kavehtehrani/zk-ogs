@@ -167,11 +167,14 @@ function updateStepCheckmarks() {
 // Get network name from chain ID
 function getNetworkName(chainId) {
   if (!chainId) return "Unknown";
-  
-  const chainIdNum = typeof chainId === "string" 
-    ? (chainId.startsWith("0x") ? parseInt(chainId, 16) : parseInt(chainId))
-    : Number(chainId);
-  
+
+  const chainIdNum =
+    typeof chainId === "string"
+      ? chainId.startsWith("0x")
+        ? parseInt(chainId, 16)
+        : parseInt(chainId)
+      : Number(chainId);
+
   const networkMap = {
     1: "Mainnet",
     11155111: "Sepolia",
@@ -183,18 +186,21 @@ function getNetworkName(chainId) {
     42161: "Arbitrum",
     10: "Optimism",
   };
-  
+
   return networkMap[chainIdNum] || `Chain ${chainIdNum}`;
 }
 
 // Get block explorer URL for a chain ID
 function getBlockExplorerUrl(chainId) {
   if (!chainId) return [];
-  
-  const chainIdNum = typeof chainId === "string" 
-    ? (chainId.startsWith("0x") ? parseInt(chainId, 16) : parseInt(chainId))
-    : Number(chainId);
-  
+
+  const chainIdNum =
+    typeof chainId === "string"
+      ? chainId.startsWith("0x")
+        ? parseInt(chainId, 16)
+        : parseInt(chainId)
+      : Number(chainId);
+
   const explorerMap = {
     1: ["https://etherscan.io"],
     11155111: ["https://sepolia.etherscan.io"],
@@ -204,7 +210,7 @@ function getBlockExplorerUrl(chainId) {
     42161: ["https://arbiscan.io"],
     10: ["https://optimistic.etherscan.io"],
   };
-  
+
   return explorerMap[chainIdNum] || [];
 }
 
@@ -236,7 +242,9 @@ async function ensureCorrectNetwork() {
 
   try {
     // Always use window.ethereum directly for network checks to get the most current state
-    const currentChainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+    const currentChainIdHex = await window.ethereum.request({
+      method: "eth_chainId",
+    });
     const currentChainId = normalizeChainId(currentChainIdHex);
     const targetChainId = normalizeChainId(DEPLOYED_CHAIN_ID);
 
@@ -250,7 +258,9 @@ async function ensureCorrectNetwork() {
 
     // Need to switch networks
     const networkName = getNetworkName(targetChainId);
-    log(`🔄 Switching from Chain ${currentChainId} to ${networkName} (Chain ID: ${targetChainId})...`);
+    log(
+      `🔄 Switching from Chain ${currentChainId} to ${networkName} (Chain ID: ${targetChainId})...`
+    );
 
     const targetChainIdHex = `0x${BigInt(targetChainId).toString(16)}`;
     log(`🔧 Requesting switch to chain ID: ${targetChainIdHex}`);
@@ -261,23 +271,29 @@ async function ensureCorrectNetwork() {
         params: [{ chainId: targetChainIdHex }],
       });
       log(`✅ Switched to ${networkName}`);
-      
+
       // Wait a moment for the switch to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
       // Update provider after network switch
       provider = new ethers.BrowserProvider(window.ethereum);
       if (signer) {
         signer = await provider.getSigner();
         if (CONTRACT_ADDRESS && CONTRACT_ABI) {
-          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+          contract = new ethers.Contract(
+            CONTRACT_ADDRESS,
+            CONTRACT_ABI,
+            signer
+          );
         }
       }
-      
+
       return true;
     } catch (switchError) {
-      log(`⚠️ Switch error code: ${switchError.code}, message: ${switchError.message}`);
-      
+      log(
+        `⚠️ Switch error code: ${switchError.code}, message: ${switchError.message}`
+      );
+
       // Chain doesn't exist, try to add it if we have RPC URL
       if (switchError.code === 4902 && DEPLOYED_RPC_URL) {
         log(`➕ Chain not found in MetaMask. Adding ${networkName} network...`);
@@ -295,29 +311,37 @@ async function ensureCorrectNetwork() {
             ],
           });
           log(`✅ Added ${networkName} network to MetaMask`);
-          
+
           // Wait a moment for the addition to complete
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
           // Update provider after adding network
           provider = new ethers.BrowserProvider(window.ethereum);
           if (signer) {
             signer = await provider.getSigner();
             if (CONTRACT_ADDRESS && CONTRACT_ABI) {
-              contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+              contract = new ethers.Contract(
+                CONTRACT_ADDRESS,
+                CONTRACT_ABI,
+                signer
+              );
             }
           }
-          
+
           return true;
         } catch (addError) {
           log(`❌ Could not add network: ${addError.message}`);
           log(`💡 Please manually add the network in MetaMask`);
-          log(`💡 Chain ID: ${targetChainId} (${targetChainIdHex}), RPC: ${DEPLOYED_RPC_URL}`);
+          log(
+            `💡 Chain ID: ${targetChainId} (${targetChainIdHex}), RPC: ${DEPLOYED_RPC_URL}`
+          );
           return false;
         }
       } else {
         log(`❌ Could not switch network: ${switchError.message}`);
-        log(`💡 Please manually switch to ${networkName} (Chain ID: ${targetChainId}) in MetaMask`);
+        log(
+          `💡 Please manually switch to ${networkName} (Chain ID: ${targetChainId}) in MetaMask`
+        );
         return false;
       }
     }
@@ -335,13 +359,13 @@ async function updateContractAddressDisplay() {
 
   if (CONTRACT_ADDRESS) {
     let networkName = "Unknown";
-    
+
     // Try to get network from MetaMask first
     if (provider) {
       try {
         const network = await provider.getNetwork();
         networkName = getNetworkName(network.chainId.toString());
-      } catch (error) {
+      } catch {
         // Fall back to deployments.json chainId
         if (DEPLOYED_CHAIN_ID) {
           networkName = getNetworkName(DEPLOYED_CHAIN_ID);
@@ -375,17 +399,19 @@ async function connectWallet() {
         `💡 Tip: Make sure MetaMask is installed and configured for ${networkName} (Chain ID: ${DEPLOYED_CHAIN_ID})`
       );
     } else {
-      log("💡 Tip: Make sure MetaMask is installed and configured for the correct network");
+      log(
+        "💡 Tip: Make sure MetaMask is installed and configured for the correct network"
+      );
     }
     return;
   }
 
   try {
     provider = new ethers.BrowserProvider(window.ethereum);
-    
+
     // Ensure we're on the correct network
     await ensureCorrectNetwork();
-    
+
     await provider.send("eth_requestAccounts", []);
     signer = await provider.getSigner();
     const address = await signer.getAddress();
@@ -483,7 +509,7 @@ async function createGame() {
       return;
     }
     log(`✅ Contract code found (${(code.length - 2) / 2} bytes)`);
-    
+
     // Try to verify the contract has the expected interface by calling a view function
     try {
       const gameCounter = await contract.gameCounter();
@@ -492,9 +518,10 @@ async function createGame() {
       log(`⚠️ Could not verify contract interface: ${verifyError.message}`);
       log(`💡 The contract may have a different ABI than expected`);
     }
-    
+
     // Verify the function selector
-    const createGameSelector = contract.interface.getFunction("createGame").selector;
+    const createGameSelector =
+      contract.interface.getFunction("createGame").selector;
     log(`🔍 createGame function selector: ${createGameSelector}`);
 
     // Generate random salt
@@ -546,13 +573,21 @@ async function createGame() {
 
     // Pass timeout as a number - ethers.js will handle the conversion to uint256
     log(`📤 Sending transaction to contract: ${CONTRACT_ADDRESS}`);
-    log(`📤 Function: createGame(commitment=${commitment.slice(0, 10)}..., timeout=${timeoutUint})`);
+    log(
+      `📤 Function: createGame(commitment=${commitment.slice(
+        0,
+        10
+      )}..., timeout=${timeoutUint})`
+    );
     log(`📤 Commitment (full): ${commitment}`);
     log(`📤 Timeout (number): ${timeoutUint}, type: ${typeof timeoutUint}`);
-    
+
     // Verify we can encode the function call
     try {
-      const encoded = contract.interface.encodeFunctionData("createGame", [commitment, timeoutUint]);
+      const encoded = contract.interface.encodeFunctionData("createGame", [
+        commitment,
+        timeoutUint,
+      ]);
       log(`✅ Function call encoded successfully (${encoded.length} bytes)`);
       log(`🔍 Encoded data: ${encoded.slice(0, 10)}...`);
     } catch (encodeError) {
@@ -561,12 +596,15 @@ async function createGame() {
       btn.innerHTML = originalText;
       return;
     }
-    
+
     // Try to estimate gas first to catch errors early
     let gasEstimate;
     try {
       log(`⛽ Estimating gas...`);
-      gasEstimate = await contract.createGame.estimateGas(commitment, timeoutUint);
+      gasEstimate = await contract.createGame.estimateGas(
+        commitment,
+        timeoutUint
+      );
       log(`⛽ Gas estimate: ${gasEstimate.toString()}`);
     } catch (estimateError) {
       log(`❌ Gas estimation failed: ${estimateError.message}`);
@@ -576,7 +614,11 @@ async function createGame() {
         // Try to decode the error if possible
         try {
           const decoded = contract.interface.parseError(estimateError.data);
-          log(`📋 Decoded error: ${decoded.name} - ${JSON.stringify(decoded.args)}`);
+          log(
+            `📋 Decoded error: ${decoded.name} - ${JSON.stringify(
+              decoded.args
+            )}`
+          );
         } catch (e) {
           log(`📋 Could not decode error: ${e.message}`);
         }
@@ -594,25 +636,30 @@ async function createGame() {
       btn.innerHTML = originalText;
       return;
     }
-    
+
     let tx;
     try {
       // Try to get more detailed error information
-      const txRequest = await contract.createGame.populateTransaction(commitment, timeoutUint);
-      log(`📋 Transaction request: ${JSON.stringify({
-        to: txRequest.to,
-        data: txRequest.data?.slice(0, 20) + '...',
-        value: txRequest.value?.toString(),
-        gasLimit: txRequest.gasLimit?.toString()
-      })}`);
-      
+      const txRequest = await contract.createGame.populateTransaction(
+        commitment,
+        timeoutUint
+      );
+      log(
+        `📋 Transaction request: ${JSON.stringify({
+          to: txRequest.to,
+          data: txRequest.data?.slice(0, 20) + "...",
+          value: txRequest.value?.toString(),
+          gasLimit: txRequest.gasLimit?.toString(),
+        })}`
+      );
+
       tx = await contract.createGame(commitment, timeoutUint, {
-        gasLimit: gasEstimate * BigInt(2) // Add buffer
+        gasLimit: gasEstimate * BigInt(2), // Add buffer
       });
       log(`Transaction sent: ${tx.hash}`);
     } catch (error) {
       log(`❌ Transaction failed: ${error.message}`);
-      
+
       // Try to get more detailed error information
       if (error.error) {
         log(`📋 Error object: ${JSON.stringify(error.error, null, 2)}`);
@@ -622,7 +669,11 @@ async function createGame() {
         // Try to decode the error if possible
         try {
           const decoded = contract.interface.parseError(error.data);
-          log(`📋 Decoded error: ${decoded.name} - ${JSON.stringify(decoded.args)}`);
+          log(
+            `📋 Decoded error: ${decoded.name} - ${JSON.stringify(
+              decoded.args
+            )}`
+          );
         } catch (e) {
           log(`📋 Could not decode error data: ${e.message}`);
         }
@@ -634,17 +685,22 @@ async function createGame() {
         log(`📋 Error code: ${error.code}`);
       }
       if (error.transaction) {
-        log(`📋 Failed transaction: ${JSON.stringify(error.transaction, null, 2)}`);
+        log(
+          `📋 Failed transaction: ${JSON.stringify(error.transaction, null, 2)}`
+        );
       }
-      
+
       // Try to simulate the transaction to get revert reason
       try {
         log(`🔍 Attempting to simulate transaction to get revert reason...`);
-        const txRequest = await contract.createGame.populateTransaction(commitment, timeoutUint);
+        const txRequest = await contract.createGame.populateTransaction(
+          commitment,
+          timeoutUint
+        );
         const result = await provider.call({
           to: txRequest.to,
           data: txRequest.data,
-          from: await signer.getAddress()
+          from: await signer.getAddress(),
         });
         log(`📋 Simulation result: ${result}`);
       } catch (simError) {
@@ -654,8 +710,12 @@ async function createGame() {
           // Try to decode revert reason
           try {
             const reason = contract.interface.parseError(simError.data);
-            log(`📋 Revert reason: ${reason.name} - ${JSON.stringify(reason.args)}`);
-          } catch (e) {
+            log(
+              `📋 Revert reason: ${reason.name} - ${JSON.stringify(
+                reason.args
+              )}`
+            );
+          } catch {
             // Try to decode as a string revert
             if (simError.data && simError.data.length > 10) {
               try {
@@ -664,14 +724,14 @@ async function createGame() {
                   "0x" + simError.data.slice(10)
                 );
                 log(`📋 Revert message: ${reason[0]}`);
-              } catch (e2) {
+              } catch {
                 log(`📋 Could not decode revert reason`);
               }
             }
           }
         }
       }
-      
+
       log(`💡 The contract exists but the transaction reverted.`);
       log(`💡 Check Anvil logs for more details.`);
       throw error;
@@ -779,18 +839,16 @@ async function joinGame() {
     gameState.playerNumber = 2;
 
     // Get deadline from event - handle both old and new event formats
-    let event = null;
     let parsed = null;
 
     for (const log of receipt.logs) {
       try {
         const tempParsed = contract.interface.parseLog(log);
         if (tempParsed && tempParsed.name === "PlayerJoined") {
-          event = log;
           parsed = tempParsed;
           break;
         }
-      } catch (e) {
+      } catch {
         // Continue searching
       }
     }
@@ -1068,8 +1126,6 @@ async function serializeProof(proof) {
 }
 
 // Track last rendered status to avoid unnecessary DOM updates
-let lastRenderedStatus = null;
-let lastRenderedGameId = null;
 let lastRenderedPlayerNumber = null;
 let lastRenderedResolutionStatus = null;
 let lastRenderedResolutionGameId = null;
@@ -2062,22 +2118,26 @@ function showGameResult(announcement, winner, game) {
 // Setup event listeners
 function setupEventListeners() {
   console.log("Setting up app.js event listeners...");
-  
+
   // Add global error handler
-  window.addEventListener('error', (event) => {
-    console.error('Global error caught:', event.error);
-    if (typeof log === 'function') {
+  window.addEventListener("error", (event) => {
+    console.error("Global error caught:", event.error);
+    if (typeof log === "function") {
       log(`❌ JavaScript error: ${event.error?.message || event.message}`);
     }
   });
-  
-  window.addEventListener('unhandledrejection', (event) => {
-    console.error('Unhandled promise rejection:', event.reason);
-    if (typeof log === 'function') {
-      log(`❌ Unhandled promise rejection: ${event.reason?.message || event.reason}`);
+
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("Unhandled promise rejection:", event.reason);
+    if (typeof log === "function") {
+      log(
+        `❌ Unhandled promise rejection: ${
+          event.reason?.message || event.reason
+        }`
+      );
     }
   });
-  
+
   const connectBtn = document.getElementById("connectBtn");
   if (connectBtn) {
     connectBtn.addEventListener("click", connectWallet);
@@ -2085,7 +2145,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Connect button not found");
   }
-  
+
   const createGameBtn = document.getElementById("createGameBtn");
   if (createGameBtn) {
     createGameBtn.addEventListener("click", createGame);
@@ -2093,7 +2153,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Create Game button not found");
   }
-  
+
   const joinGameBtn = document.getElementById("joinGameBtn");
   if (joinGameBtn) {
     joinGameBtn.addEventListener("click", joinGame);
@@ -2101,7 +2161,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Join Game button not found");
   }
-  
+
   const rockBtn = document.getElementById("rockBtn");
   if (rockBtn) {
     rockBtn.addEventListener("click", () => selectMove(0));
@@ -2109,7 +2169,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Rock button not found");
   }
-  
+
   const paperBtn = document.getElementById("paperBtn");
   if (paperBtn) {
     paperBtn.addEventListener("click", () => selectMove(1));
@@ -2117,7 +2177,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Paper button not found");
   }
-  
+
   const scissorsBtn = document.getElementById("scissorsBtn");
   if (scissorsBtn) {
     scissorsBtn.addEventListener("click", () => selectMove(2));
@@ -2125,7 +2185,7 @@ function setupEventListeners() {
   } else {
     console.error("❌ Scissors button not found");
   }
-  
+
   // Update join button state when game ID is entered
   const gameIdInput = document.getElementById("gameIdInput");
   if (gameIdInput) {
@@ -2149,7 +2209,11 @@ if (typeof window.ethereum !== "undefined") {
         signer = await provider.getSigner();
         // Update contract if address is available
         if (CONTRACT_ADDRESS && CONTRACT_ABI) {
-          contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+          contract = new ethers.Contract(
+            CONTRACT_ADDRESS,
+            CONTRACT_ABI,
+            signer
+          );
         }
       }
       // Update display with new network
@@ -2164,7 +2228,7 @@ async function init() {
     // Setup event listeners FIRST, before any async operations
     // This ensures buttons work even if deployment loading fails
     setupEventListeners();
-    
+
     await loadContractArtifact();
     await initNoir();
 
@@ -2181,7 +2245,7 @@ async function init() {
       if (deploymentsResponse.ok) {
         const deployments = await deploymentsResponse.json();
         log(`📋 Loaded deployments.json`);
-        
+
         // Store network configuration
         if (deployments.chainId) {
           DEPLOYED_CHAIN_ID = deployments.chainId.toString(); // Ensure it's a string
@@ -2193,17 +2257,20 @@ async function init() {
           DEPLOYED_RPC_URL = deployments.rpcUrl;
           log(`🌐 RPC URL: ${DEPLOYED_RPC_URL}`);
         }
-        
+
         // Extract RockPaperScissors contract address
         if (deployments.contracts && deployments.contracts.rockPaperScissors) {
           CONTRACT_ADDRESS = deployments.contracts.rockPaperScissors.address;
-          log(`✅ Loaded RockPaperScissors contract address: ${CONTRACT_ADDRESS}`);
+          log(
+            `✅ Loaded RockPaperScissors contract address: ${CONTRACT_ADDRESS}`
+          );
           await updateContractAddressDisplay();
         } else {
+          log(`⚠️ rockPaperScissors contract not found in deployments.json`);
           log(
-            `⚠️ rockPaperScissors contract not found in deployments.json`
+            `📋 Available contracts:`,
+            Object.keys(deployments.contracts || {})
           );
-          log(`📋 Available contracts:`, Object.keys(deployments.contracts || {}));
         }
       } else {
         log(
