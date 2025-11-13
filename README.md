@@ -43,17 +43,17 @@ The project includes two game modes:
 ## Game Flow
 
 ```
-Player 1                     Contract                    Player 2
-   |                            |                            |
-   |-- createGame(commitment) ->|                            |
-   |                            |                            |
-   |                            |<-- joinGame(move) ------|
-   |                            |    (move stored on-chain) |
-   |                            |                            |
-   |-- resolveGame(move+salt) ->|                            |
-   |     + ZK proof             |                            |
-   |                            |-- _resolveGame() ----------|
-   |<-- GameResolved event -----|                            |
+Player 1                  Contract                   Player 2
+   |                         |                          |
+   |-- createGame(commit) -->|                          |
+   |   (move + salt)         |                          |
+   |                         |<-- joinGame(move) -------|
+   |                         |    (stored on-chain)     |
+   |                         |                          |
+   |-- resolveGame(move,salt)|                          |
+   |   + player2 move ------>|                          |
+   |                         |-- GameResolved event --> |
+   |                         |                          |
 ```
 
 ## Setup
