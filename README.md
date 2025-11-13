@@ -6,7 +6,7 @@
 ![Vite](https://img.shields.io/badge/Vite-4.x-646CFF?logo=vite)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js)
 
-A Uniswap v4 hook that turns every swap into a chance to play a zero-knowledge rock-paper-scissors duel. A small slice of the swap amount is escrowed inside the hook, the players resolve the match with Noir-based proofs, and the hook redistributes the game token stake to the winner. Built with **Noir**, **Barretenberg**, **Hardhat 3**, and **Ethereum**.
+A fully functional zero-knowledge rock-paper-scissors game where Player 1 commits their move, Player 2 joins with their move directly, and Player 1 reveals with ZK proofs to resolve the game on-chain. Built with **Noir**, **Barretenberg**, **Hardhat 3**, and **Ethereum**.
 
 ## Overview
 
@@ -17,7 +17,13 @@ Each game unfolds alongside a Uniswap swap:
 - Once matched, **Player A** reveals their move plus salt along with a Noir-generated ZK proof that the outcome was computed correctly.
 - The hook contract validates the commitment, verifies the ZK proof through the game manager contract, and pays the escrowed tokens to the winner (or slashes Player A if they fail to reveal before expiry).
 
-This flow keeps Player A’s move hidden until reveal, protects Player B from front-running, and ensures rewards are settled atomically with the swap.
+**Current State:**
+
+- ✅ Real ZK proofs generated client-side using NoirJS and Barretenberg backend
+- ✅ Proofs verified locally before submission
+- ✅ Commit-reveal scheme for Player 1 prevents front-running
+- ✅ Player 2 submits move directly when joining (no commit/reveal needed)
+- ⏳ On-chain proof verification (requires verifier contract generation)
 
 ## Technology Stack
 
@@ -32,41 +38,55 @@ This flow keeps Player A’s move hidden until reveal, protects Player B from fr
 - **Solidity 0.8.20**: Implements the commit/reveal lifecycle, escrow bookkeeping, and proof verification interface.
 - **Hardhat 3**: Provides compilation, testing, and deployment tooling for the core game logic.
 
-### Uniswap Hook Layer
+1. **Player 2 joins** and submits their move directly to the contract
+2. **Player 1 reveals their move** (move + salt) after Player 2 has joined
+3. **Frontend computes expected winner** using the same logic as the contract
+4. **Noir circuit executes** with both moves and winner as inputs
+5. **Barretenberg backend generates a proof** proving the computation is correct
+6. **Proof is verified locally** before sending to contract
+7. **Proof is sent to contract** via `resolveGame()` (on-chain verification pending)
 
 - **Solidity 0.8.20**: Extends Uniswap v4’s `IHooks` to siphon a configurable percentage of each swap into a game escrow, call into the manager contract, and release funds atomically with the swap outcome.
 - **Hardhat 3**: Supplies the local fork environment and scripts used to exercise hook callbacks during development.
 
 ### Frontend Layer
 
-- **Vite + Vanilla JS**: Lightweight UI for creating games, joining them, and triggering reveals from the browser.
-- **Ethers.js v6**: Handles wallet connections, swap-triggered hook interactions, and proof submissions.
-- **NoirJS**: Runs circuit witness generation and proof verification before anything touches the chain.
+1. **Player 1 Commit Phase**:
+
+   - Player 1 generates random salt
+   - Creates commitment: `keccak256(move || salt)`
+   - Submits commitment hash to contract via `createGame()` (move is hidden)
+
+2. **Player 2 Join Phase**:
+
+   - Player 2 joins the game and submits their move directly via `joinGame()`
+   - No commit/reveal needed for Player 2 (move is stored on-chain immediately)
+   - Sets a deadline for Player 1 to reveal
+
+3. **Player 1 Reveal Phase**:
+
+   - Player 1 reveals move + salt via `resolveGame()`
+   - Contract verifies `keccak256(move || salt) == commitment`
+   - ZK proof generated proving winner calculation
+
+4. **Resolution**:
+   - Contract's `_resolveGame()` determines winner
+   - ZK proof proves this calculation is correct
 
 ## Game Flow
 
 ```
-Trader / Player A           Uniswap Hook                     Player B
---------------------------  -------------------------------  ----------------------
-Swap starts                 |                               |
-hook.afterSwap()  --------> |                               |
-│  stake % of swap tokens   |                               |
-│  createGame(commitment)   |                               |
-│                           |-- open escrow & emit event -->|
-│                           |                               |
-Await opponent              |                               |
-│                           |<-- joinGame(clearMove, stake)--│
-│                           |      (no commit needed)        |
-│                           |                               |
-Reveal & resolve            |                               |
-resolveGame(move, salt, proof)                              |
-│ ------------------------> |                               |
-│                           |-- verify commitment & proof -->|
-│                           |-- call game logic              |
-│                           |-- pay winner / slash default --|
-│ <--- swap resumes --------|                               |
-│                           |                               |
-│                                                       winner receives stake
+Player 1                     Contract                    Player 2
+   |                            |                            |
+   |-- createGame(commitment) ->|                            |
+   |                            |                            |
+   |                            |<-- joinGame(move) ------|
+   |                            |    (move stored on-chain) |
+   |                            |                            |
+   |-- resolveGame(move+salt) ->|                            |
+   |     + ZK proof             |                            |
+   |                            |-- _resolveGame() ----------|
+   |<-- GameResolved event -----|                            |
 ```
 
 ## Project Structure
@@ -171,27 +191,45 @@ cp ../contracts/artifacts/contracts/RockPaperScissors.sol/RockPaperScissors.json
    - The app reads your committed move/salt from localStorage, runs the Noir circuit to produce the proof, and calls `resolveGame`.  
    - The hook contract validates the commitment, verifies the proof via the manager contract, pays the winner from escrow, and releases the swap back to Uniswap.
 
-5. **Handle timeouts**  
-   If Player A never reveals before the deadline, Player B can trigger the timeout action from the UI to claim the escrow. Scripts in `raffle-pool/script/` demonstrate these flows end-to-end.
+- Network Name: `Hardhat Local`
+- RPC URL: `http://127.0.0.1:8545`
+- Chain ID: `31337`
+- Currency Symbol: `ETH`
+
+## Playing the Game
+
+1. **Connect Wallet**: Click "Connect Wallet" in the UI
+2. **Create/Join Game**:
+   - Player 1: Select move (Rock 🪨, Paper 📄, or Scissors ✂️), then click "Create Game"
+   - Player 2: Select move, enter Game ID, then click "Join Game" (move is submitted directly)
+3. **Resolve Game** (Player 1 only):
+   - After Player 2 joins, Player 1 clicks "Resolve Game"
+   - Frontend generates ZK proof proving winner calculation
+   - Proof is verified locally before submission
+   - Player 1's move and proof are submitted to contract
+4. **View Result**: Winner is announced after resolution
 
 ## How It Works
 
-### ZK Proof Lifecycle
+### ZK Proof Generation
 
-1. **State availability** – Player B’s clear-text move and both stakes are stored on-chain as soon as they join via the hook.  
-2. **Witness construction** – When Player A clicks reveal, the frontend feeds `{player1_move, salt, player2_move}` into `circuit/src/main.nr` to compute the expected winner.  
-3. **Proof generation** – Barretenberg (via `@aztec/bb.js`) creates an UltraPLONK proof that the moves were valid values and that the published winner matches the circuit logic.  
-4. **Local verification** – The proof is checked client-side before submission; invalid proofs never hit the chain.  
-5. **On-chain submission** – `resolveGame` receives `(move, salt, proof)`, verifying `keccak256(move || salt)` against the commitment and, when the verifier contract is configured, validating the proof bytes.
+When Player 1 resolves the game (after Player 2 has joined):
+
+1. **Player 2's move** is already stored on-chain from `joinGame()`
+
+2. **Compute Witness**: Noir circuit executes with:
+
+   - `player1_move`: Field (private - from Player 1's reveal)
+   - `player2_move`: Field (private - already on-chain from Player 2's join)
+   - `winner`: Field (public - computed result)
+
+3. **Generate Proof**: Barretenberg backend creates a PLONK proof proving:
 
 ### Hook Settlement Path
 
-1. **beforeSwap** – `RPSHook` runs before Uniswap finalizes the swap, siphoning the configured percentage into escrow and calling the game manager to record the commitment.  
-2. **joinGame** – Counterparties stake the matching amount through the hook, which locks liquidity until the game is resolved.  
-3. **resolveGame** – On reveal, the hook contract confirms the commitment, queries the verifier/game manager for the outcome, and sends the pooled tokens to the winner (or refunds both on draw).  
-4. **afterSwap** – TBC
+4. **Verify Locally**: Proof is verified before submission to ensure validity
 
-### Failure Modes & Safeguards
+5. **Submit to Contract**: Proof bytes are sent via `resolveGame()` (on-chain verification pending)
 
 - **Timeouts** – Non-responsive Player A forfeits their stake after the reveal window expires; automation scripts and UI actions enforce this.  
 - **Swap reentrancy** – Escrow updates happen before the pool’s state changes to avoid double-escrowing across nested hooks.  
@@ -199,12 +237,8 @@ cp ../contracts/artifacts/contracts/RockPaperScissors.sol/RockPaperScissors.json
 
 ## Design Exploration
 
-We tracked the alternative commit–reveal models that led to the current flow, including trusted adjudication, zk approaches, and the final hybrid we shipped. Review the discussion and trade-offs in [`notes/different_approach.md`](notes/different_approach.md).
-
-## Further Plan
-
-- [ ] Explore implementing another game that’s more suitable for ZKP (e.g., Battleship).
-
-## License
-
-GPLv3
+- **Game State**: Manages game lifecycle (WaitingForPlayer → Committed → Revealed → Completed)
+- **Player 1 Commitment**: Validates `keccak256(move || salt) == commitment` when Player 1 resolves
+- **Player 2 Move**: Stored directly on-chain when Player 2 joins (no commit/reveal)
+- **Winner Resolution**: Uses `_determineWinner()` matching circuit logic
+- **ZK Proof Verification**: Receives proof bytes via `resolveGame()` (verification pending if verifier is set)
