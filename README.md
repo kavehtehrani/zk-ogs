@@ -100,3 +100,51 @@ cp ../circuit/target/circuit.json target/
 # Copy contract artifact (after compilation)
 cp ../contracts/artifacts/contracts/RockPaperScissors.sol/RockPaperScissors.json contract-artifact.json
 ```
+
+### 4. Start Local Blockchain (Optional)
+
+If you want to test locally, start a Hardhat node:
+
+```bash
+cd contracts
+npx hardhat node
+```
+
+This will start a local blockchain on `http://127.0.0.1:8545` with test accounts.
+
+### 5. Deploy Contracts (Optional)
+
+If running locally, deploy the contracts to your local network:
+
+```bash
+cd contracts
+npx hardhat ignition deploy ignition/modules/RockPaperScissors.ts --network localhost
+```
+
+For the degen version:
+
+```bash
+cd degen-rps
+forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+Update `frontend/deployments.json` with the deployed contract addresses.
+
+### 6. Run Frontend
+
+Start the development server:
+
+```bash
+cd frontend
+npm run dev
+```
+
+## Future Work
+
+The `raffle-pool/` directory contains work-in-progress code for integrating the RPS game with a Uniswap pool. The original concept was to create a system where:
+
+- **95% of swap funds** would execute a normal Uniswap swap
+- **5% of swap funds** would be escrowed into an RPS game
+- The winner of the RPS game would take the combined 5% contributions from both players
+
+This integration is currently in development and left for future exploration. The current implementation focuses on standalone RPS games with token betting (as seen in `/swap-rps`).
