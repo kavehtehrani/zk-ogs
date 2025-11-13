@@ -7,18 +7,11 @@ let circuit = null;
 
 // Game state
 let gameState = {
-  commitmentHash: null,
-  gameId: null, // Game ID from RockPaperScissors contract
+  gameId: null, // Game ID from DegenRPS contract
   role: null, // "maker" or "taker"
   move: null,
   salt: null,
   commitment: null,
-  isCommitted: false,
-  isRevealed: false,
-  swapAmount: null,
-  swapDirection: null, // "token0ToToken1" or "token1ToToken0"
-  poolKey: null,
-  timeout: 300, // Default timeout in seconds (5 minutes)
 };
 
 // Current view: "maker" or "taker"
@@ -36,19 +29,14 @@ let provider = null;
 let signer = null;
 
 // Contract instances
-let routerContract = null;
-let hookContract = null;
-let rpsContract = null; // RockPaperScissors contract
+let rpsContract = null; // DegenRPS contract
 let token0Contract = null;
 let token1Contract = null;
 
 // Contract addresses and ABIs - will be loaded from deployments.json
-let ROUTER_ADDRESS = null;
-let HOOK_ADDRESS = null;
-let RPS_ADDRESS = null; // RockPaperScissors contract address
+let RPS_ADDRESS = null; // DegenRPS contract address
 let TOKEN0_ADDRESS = null;
 let TOKEN1_ADDRESS = null;
-let POOL_MANAGER_ADDRESS = null;
 
 // Network configuration
 let DEPLOYED_CHAIN_ID = null;
@@ -59,10 +47,6 @@ let deployments = null;
 
 // ERC20 ABI (will be loaded from deployments or use fallback)
 let erc20ABI = null;
-
-// Pool configuration (from deployments.json or hardcoded)
-const POOL_FEE = 3000; // 0.3% (3000 = 0.3% in Uniswap V4)
-const TICK_SPACING = 60;
 
 // Helper function to format time ago
 function getTimeAgo(timestamp) {
@@ -109,14 +93,6 @@ async function loadDeployments() {
     DEPLOYED_RPC_URL = deployments.rpcUrl;
 
     if (deployments.contracts) {
-      if (deployments.contracts.senderRelayRouter) {
-        ROUTER_ADDRESS = deployments.contracts.senderRelayRouter.address;
-        log(`✅ Router address: ${ROUTER_ADDRESS}`);
-      }
-      if (deployments.contracts.hook) {
-        HOOK_ADDRESS = deployments.contracts.hook.address;
-        log(`✅ Hook address: ${HOOK_ADDRESS}`);
-      }
       if (deployments.contracts.token0) {
         TOKEN0_ADDRESS = deployments.contracts.token0.address;
         log(`✅ Token0 address: ${TOKEN0_ADDRESS}`);
@@ -142,10 +118,6 @@ async function loadDeployments() {
             6
           )}...${TOKEN1_ADDRESS.slice(-4)})`;
         }
-      }
-      if (deployments.contracts.poolManager) {
-        POOL_MANAGER_ADDRESS = deployments.contracts.poolManager.address;
-        log(`✅ PoolManager address: ${POOL_MANAGER_ADDRESS}`);
       }
       if (deployments.contracts.rockPaperScissors) {
         RPS_ADDRESS = deployments.contracts.rockPaperScissors.address;
@@ -391,34 +363,6 @@ async function initializeContracts() {
   }
 
   try {
-    // Router ABI (minimal - just the functions we need)
-    const routerABI = [
-      "function swapExactTokensForTokensWithCommitment(uint256 amountIn, uint256 amountOutMin, bool zeroForOne, tuple(address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) poolKey, bytes32 commitmentHash, bytes hookData, address receiver, uint256 deadline) external payable returns (int256 delta)",
-    ];
-
-    if (ROUTER_ADDRESS) {
-      routerContract = new ethers.Contract(ROUTER_ADDRESS, routerABI, signer);
-    }
-
-    // Hook ABI (minimal)
-    const hookABI = [
-      "function getGamesWaitingForPlayer2() external view returns (bytes32[])",
-      "function getGamesWaitingForReveal() external view returns (bytes32[])",
-      "function getPendingSwap(bytes32 commitmentHash) external view returns (tuple(address player1, uint256 timestamp, bytes32 poolId, address currency, uint256 player1Contribution, bool player2Moved, address player2, uint8 player2Move, uint256 player2Contribution, uint256 player2MoveTimestamp, bool revealed, uint8 player1Move, bytes32 salt, bool resolved))",
-      "function player2PostMove(bytes32 commitmentHash, uint8 player2Move, uint256 player2ContributionAmount) external",
-      "function getRafflePoolBalance(bytes32 poolId, address currency) external view returns (uint256)",
-      "function linkGameId(bytes32 commitmentHash, uint256 gameId) external",
-      "function getGameId(bytes32 commitmentHash) external view returns (uint256)",
-      "function getContributionByAddress(address account, bytes32 poolId, address currency) external view returns (uint256)",
-      "function contributionsByAddress(address, bytes32, address) external view returns (uint256)",
-      "function REFUND_TIMEOUT() external view returns (uint256)",
-      "event GameCreated(bytes32 indexed commitmentHash, address indexed player1, bytes32 indexed poolId, address currency, uint256 contributionAmount, uint256 timestamp)",
-    ];
-
-    if (HOOK_ADDRESS) {
-      hookContract = new ethers.Contract(HOOK_ADDRESS, hookABI, signer);
-    }
-
     // Load DegenRPS address and ABI from deployments
     let DEGEN_RPS_ADDRESS = null;
     let degenRPSABI = null;
@@ -909,123 +853,6 @@ async function approveToken(view = "maker") {
   }
 }
 
-// Approve token for Taker (when joining a game)
-async function approveTokenForTaker(
-  tokenContract,
-  tokenSymbol,
-  commitmentHash,
-  oppositeDirection,
-  makerContributionAmount
-) {
-  console.log(`approveTokenForTaker called for ${tokenSymbol}`);
-  log(`🔓 Approving ${tokenSymbol} for router...`);
-
-  if (!signer) {
-    log("❌ Please connect your wallet first");
-    console.error("No signer");
-    return;
-  }
-
-  if (!ROUTER_ADDRESS) {
-    log("❌ Router address not found. Please check deployments.json");
-    console.error("No ROUTER_ADDRESS:", ROUTER_ADDRESS);
-    return;
-  }
-
-  const networkOk = await ensureCorrectNetwork();
-  if (!networkOk) {
-    log("❌ Please switch to the correct network");
-    return;
-  }
-
-  const gameIdForBtn = `game-${commitmentHash.slice(2, 10)}`;
-  const approveBtn = document.getElementById(`${gameIdForBtn}-join-btn`);
-  const originalText = approveBtn ? approveBtn.innerHTML : "";
-
-  if (approveBtn) {
-    approveBtn.disabled = true;
-    approveBtn.innerHTML = "⏳ Approving...";
-  }
-
-  try {
-    const decimals = await safeTokenCall(tokenContract, "decimals", 18);
-    const maxApproval = ethers.MaxUint256;
-
-    log(`🔓 Approving ${tokenSymbol} for router...`);
-    log(`   Token: ${tokenSymbol}`);
-    log(`   Router: ${ROUTER_ADDRESS}`);
-    log(`   Amount: Maximum (${maxApproval.toString()})`);
-    console.log(`Approving ${tokenSymbol} for router at ${ROUTER_ADDRESS}`);
-
-    const tx = await tokenContract.approve(ROUTER_ADDRESS, maxApproval);
-    log(`📤 Transaction sent: ${tx.hash}`);
-    console.log(`Transaction hash: ${tx.hash}`);
-
-    log("⏳ Waiting for confirmation...");
-    const receipt = await tx.wait();
-    log(
-      `✅ ${tokenSymbol} approved! Confirmed in block ${receipt.blockNumber}`
-    );
-    console.log(`Approval confirmed in block ${receipt.blockNumber}`);
-
-    // Clear approval message
-    const gameIdForMsg = `game-${commitmentHash.slice(2, 10)}`;
-    const approvalMsgDiv = document.getElementById(
-      `${gameIdForMsg}-approval-msg`
-    );
-    if (approvalMsgDiv) {
-      approvalMsgDiv.remove();
-    }
-
-    // Change button back to "Join This Game" and restore event listener
-    if (approveBtn) {
-      // Clone to remove old event listeners
-      const restoredBtn = approveBtn.cloneNode(true);
-      approveBtn.parentNode.replaceChild(restoredBtn, approveBtn);
-
-      // Restore button appearance
-      restoredBtn.disabled = false;
-      restoredBtn.innerHTML = "🎮 Join This Game";
-      restoredBtn.classList.remove(
-        "bg-gradient-to-r",
-        "from-yellow-600",
-        "to-orange-600"
-      );
-      restoredBtn.classList.add(
-        "bg-gradient-to-r",
-        "from-purple-600",
-        "to-indigo-600",
-        "text-white"
-      );
-      restoredBtn.classList.remove("opacity-75", "cursor-not-allowed");
-
-      // Restore event listener for joining
-      restoredBtn.addEventListener("click", function () {
-        if (!this.disabled) {
-          const commitment = this.getAttribute("data-commitment");
-          const direction = this.getAttribute("data-direction");
-          const amount = this.getAttribute("data-amount");
-          joinGame(commitment, direction, amount);
-        }
-      });
-    }
-
-    // Automatically retry joining the game after approval
-    log("🔄 Retrying to join game after approval...");
-    await joinGame(commitmentHash, oppositeDirection, makerContributionAmount);
-  } catch (error) {
-    log(`❌ Error approving token: ${error.message}`);
-    console.error("Full approval error:", error);
-    if (error.reason) {
-      log(`Error reason: ${error.reason}`);
-    }
-    if (approveBtn) {
-      approveBtn.disabled = false;
-      approveBtn.innerHTML = originalText;
-    }
-  }
-}
-
 // Select move for Maker
 function selectMakerMove(move) {
   gameState.move = move;
@@ -1149,10 +976,10 @@ function updateMoveStatus() {
 
 // Update button states
 function updateButtonStates() {
-  const createBtn = document.getElementById("createSwapGameBtn");
+  const createBtn = document.getElementById("makerCreateGameBtn");
   if (createBtn) {
     const hasMove = gameState.move !== null;
-    const hasAmount = document.getElementById("swapAmount")?.value;
+    const hasAmount = document.getElementById("makerSwapAmount")?.value;
     createBtn.disabled = !hasMove || !hasAmount;
   }
 }
@@ -1250,7 +1077,6 @@ async function createMakerGame() {
 
     gameState.salt = saltField;
     gameState.commitment = commitment;
-    gameState.commitmentHash = commitment;
     gameState.role = "maker";
 
     log(`📋 Game details:`);
@@ -1495,18 +1321,12 @@ async function createMakerGame() {
       }
     }
 
-    gameState.isCommitted = true;
-    gameState.betAmount = amountInput;
-    gameState.tokenAddress = tokenAddressInput;
-
     // Save to localStorage for tracking (needed for reveal - stores salt and move)
     if (gameState.gameId && gameState.commitment) {
       saveMakerGame(
         gameState.commitment,
         gameState.gameId,
         amountInput,
-        null, // swapDirection not used in DegenRPS
-        null, // timeout not used
         gameState.salt,
         moveValue
       );
@@ -1586,25 +1406,21 @@ async function createMakerGame() {
 
 // LocalStorage functions to track Maker's games
 function saveMakerGame(
-  commitmentHash,
+  commitment,
   gameId,
-  swapAmount,
-  swapDirection,
-  timeout,
+  betAmount,
   salt = null,
   move = null
 ) {
   try {
     const games = getMakerGames();
-    const gameKey = commitmentHash || gameId?.toString();
+    const gameKey = commitment || gameId?.toString();
     if (!gameKey) return;
 
     games[gameKey] = {
-      commitmentHash: commitmentHash,
+      commitment: commitment,
       gameId: gameId?.toString(),
-      swapAmount: swapAmount,
-      swapDirection: swapDirection,
-      timeout: timeout,
+      betAmount: betAmount,
       salt: salt || gameState.salt, // Store salt for later reveal
       move: move !== null ? move : gameState.move, // Store move for later reveal
       timestamp: Date.now(),
@@ -1634,17 +1450,15 @@ function clearMakerGames() {
 }
 
 // LocalStorage functions to track Taker's games
-function saveTakerGame(commitmentHash, gameId, swapAmount, swapDirection) {
+function saveTakerGame(gameId, betAmount) {
   try {
     const games = getTakerGames();
-    const gameKey = commitmentHash || gameId?.toString();
+    const gameKey = gameId?.toString();
     if (!gameKey) return;
 
     games[gameKey] = {
-      commitmentHash: commitmentHash,
       gameId: gameId?.toString(),
-      swapAmount: swapAmount,
-      swapDirection: swapDirection,
+      betAmount: betAmount,
       timestamp: Date.now(),
     };
     localStorage.setItem("takerGames", JSON.stringify(games));
@@ -2052,15 +1866,15 @@ async function startActiveGamesTimer() {
     clearInterval(activeGamesUpdateInterval);
   }
 
-  // Get REFUND_TIMEOUT from hook (defaults to 30 minutes = 1800 seconds)
+  // Get REFUND_TIMEOUT from DegenRPS contract (defaults to 30 minutes = 1800 seconds)
   let refundTimeout = 1800; // default: 30 minutes
-  if (hookContract) {
+  if (rpsContract) {
     try {
-      const timeout = await hookContract.REFUND_TIMEOUT();
+      const timeout = await rpsContract.revealTimeout();
       refundTimeout = Number(timeout);
     } catch (error) {
       console.warn(
-        "Could not get REFUND_TIMEOUT from hook, using default 30 minutes (1800 seconds)"
+        "Could not get revealTimeout from DegenRPS contract, using default 30 minutes (1800 seconds)"
       );
     }
   }
@@ -2493,7 +2307,7 @@ async function loadCompletedGames() {
 
           completedGames.push({
             gameId: i.toString(),
-            commitmentHash: trackedData.commitmentHash || null,
+            commitment: trackedData.commitment || null,
             winner:
               winner && winner !== ethers.ZeroAddress
                 ? winner.toLowerCase() === userAddress.toLowerCase()
@@ -2505,8 +2319,6 @@ async function loadCompletedGames() {
             createdAt: Number(createdAt),
             tokenAddress: tokenAddress,
             betAmount: betAmount,
-            swapAmount: trackedData.swapAmount || null,
-            swapDirection: trackedData.swapDirection || null,
             timestamp: trackedData.timestamp || Number(createdAt),
           });
         }
@@ -3765,12 +3577,12 @@ async function revealMakerMove(gameId, commitmentHash) {
 
   // Set game state for this specific game
   const originalGameId = gameState.gameId;
-  const originalCommitmentHash = gameState.commitmentHash;
+  const originalCommitment = gameState.commitment;
   const originalRole = gameState.role;
 
   try {
     gameState.gameId = gameId;
-    gameState.commitmentHash = commitmentHash;
+    gameState.commitment = commitmentHash; // commitmentHash parameter is the commitment
     gameState.role = "maker";
 
     // Get the game data to find the salt and move
@@ -4112,7 +3924,7 @@ async function revealMakerMove(gameId, commitmentHash) {
   } finally {
     // Restore original game state
     gameState.gameId = originalGameId;
-    gameState.commitmentHash = originalCommitmentHash;
+    gameState.commitment = originalCommitment;
     gameState.role = originalRole;
   }
 }
@@ -4160,7 +3972,7 @@ async function updateGameStatus() {
   }
 
   // If no game, show default message
-  if (!gameState.gameId && !gameState.commitmentHash) {
+  if (!gameState.gameId && !gameState.commitment) {
     statusDiv.innerHTML = `
       <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
         <p class="text-sm text-gray-600 text-center">
@@ -4177,25 +3989,7 @@ async function updateGameStatus() {
     let details = "";
     let game = null;
 
-    // Try to get gameId from hook if we don't have it but have commitmentHash
-    if (!gameState.gameId && hookContract && gameState.commitmentHash) {
-      try {
-        const gameId = await hookContract.getGameId(gameState.commitmentHash);
-        if (gameId && gameId.toString() !== "0") {
-          gameState.gameId = gameId.toString();
-          log(
-            `✅ Retrieved gameId ${gameId} from hook for commitment ${gameState.commitmentHash.slice(
-              0,
-              10
-            )}...`
-          );
-        }
-      } catch (error) {
-        // Silently fail - we'll fall back to hook status
-      }
-    }
-
-    // Try to get status from RockPaperScissors contract if we have gameId
+    // Try to get status from DegenRPS contract if we have gameId
     if (gameState.gameId && rpsContract) {
       try {
         game = await rpsContract.getGame(gameState.gameId);
@@ -4236,35 +4030,7 @@ async function updateGameStatus() {
             break;
         }
       } catch (rpsError) {
-        log(`⚠️ Error reading from RPS contract: ${rpsError.message}`);
-      }
-    }
-
-    // Fallback to hook status if RPS contract read failed
-    if (!game && hookContract && gameState.commitmentHash) {
-      try {
-        const swap = await hookContract.getPendingSwap(
-          gameState.commitmentHash
-        );
-        if (swap.resolved) {
-          statusText = "Resolved";
-          statusColor = "green";
-          details = "Game has been resolved.";
-        } else if (swap.revealed) {
-          statusText = "Revealed";
-          statusColor = "blue";
-          details = "Player 1 has revealed their move.";
-        } else if (swap.player2Moved) {
-          statusText = "Waiting for Reveal";
-          statusColor = "orange";
-          details = "Player 2 has joined. Player 1 must reveal their move.";
-        } else {
-          statusText = "Waiting for Player 2";
-          statusColor = "yellow";
-          details = "Waiting for Player 2 to join with opposite swap.";
-        }
-      } catch (hookError) {
-        log(`⚠️ Error reading from hook: ${hookError.message}`);
+        log(`⚠️ Error reading from DegenRPS contract: ${rpsError.message}`);
       }
     }
 
@@ -4278,10 +4044,10 @@ async function updateGameStatus() {
 
     const gameIdDisplay = gameState.gameId
       ? `Game ID: <span class="font-mono text-purple-600">${gameState.gameId}</span>`
-      : `Commitment: <span class="font-mono text-purple-600 text-xs">${gameState.commitmentHash?.slice(
+      : `Commitment: <span class="font-mono text-purple-600 text-xs">${gameState.commitment?.slice(
           0,
           10
-        )}...${gameState.commitmentHash?.slice(-8)}</span>`;
+        )}...${gameState.commitment?.slice(-8)}</span>`;
 
     statusDiv.innerHTML = `
       <div class="bg-white rounded-xl p-4 border-2 ${borderColorClass} slide-up">
@@ -4586,7 +4352,7 @@ function setupEventListeners() {
     console.log("✅ Taker refresh button listener added");
   }
 
-  // Note: Swap direction element removed - now using token dropdown instead
+  // Token selection is handled via dropdown
 
   const makerSwapAmount = document.getElementById("makerSwapAmount");
   if (makerSwapAmount) {
